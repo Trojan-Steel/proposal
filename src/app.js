@@ -1,3 +1,4 @@
+import "./weights.js";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py

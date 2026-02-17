@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "app.js",
-  "scripts": {
+  "scripts": {"build": "vite build --config vite.config.mjs"
+,
+
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite --config vite.config.mjs --host localhost --port 5173",
     "dev:all": "concurrently --kill-others --names \"APP,PDF\" \"npm run dev\" \"npm run proposal:server\"",
