@@ -21,27 +21,27 @@ body {
 }
 
 .project-clear-rail {
-  width: 44px;
-  min-height: 108px;
+  min-width: 104px;
+  min-height: 40px;
   border: 1px solid var(--text);
   background: var(--text);
   color: #ffffff;
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
   border-radius: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 0;
-  transform: rotate(90deg);
-  transform-origin: top left;
+  padding: 8px 14px;
+  transform: none;
+  transform-origin: center;
 }
 
 .project-clear-label {
-  display: inline-block;
+  display: inline;
   white-space: nowrap;
   transform: none;
   transform-origin: center;
@@ -64,37 +64,37 @@ body {
 
 .main-tabs-nav {
   display: flex;
-  gap: 0;
+  gap: 8px;
   flex-direction: row;
-  flex-wrap: nowrap;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  box-shadow: -4px 4px 18px rgba(7, 4, 27, 0.15);
-  transform: rotate(-90deg);
-  transform-origin: top right;
+  flex-wrap: wrap;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  transform-origin: center;
   overflow: visible;
+  justify-content: flex-end;
 }
 
 .main-tab-button {
-  border: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--accent);
   background: var(--accent);
   color: #ffffff;
-  padding: 8px 0;
-  min-height: 108px;
+  padding: 8px 14px;
+  min-height: 40px;
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   line-height: 1;
   text-transform: uppercase;
   cursor: pointer;
   border-radius: 0;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: 96px;
   text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
-  transform-origin: top;
+  transform-origin: top center;
   transition: transform 150ms ease, background 150ms ease;
   will-change: transform;
 }
@@ -108,13 +108,13 @@ body {
 }
 
 .main-tab-button:last-child {
-  border-right: 0;
+  border-right: 1px solid var(--accent);
 }
 
 .main-tab-button.is-active {
   background: var(--accent-dark);
   color: #ffffff;
-  transform: translateY(4px) scaleY(1.06);
+  transform: translateY(4px) scaleY(1.05);
 }
 
 .main-tab-button.is-disabled {
@@ -127,12 +127,14 @@ body {
 }
 
 .bottom-rails {
-  margin-top: 16px;
+  margin-top: 8px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   width: 100%;
-  min-height: 78px;
+  min-height: 0;
   position: relative;
 }
 
@@ -1708,26 +1710,26 @@ button,
   }
 
   .bottom-rails {
-    min-height: 96px;
+    min-height: 0;
     gap: 10px;
-    align-items: stretch;
+    align-items: flex-start;
   }
 
   .project-clear-rail {
-    width: 40px;
-    min-height: 86px;
+    min-width: 96px;
+    min-height: 38px;
     font-size: 0.66rem;
   }
 
   .main-tab-button {
-    min-height: 86px;
+    min-height: 38px;
     font-size: 0.66rem;
+    min-width: 88px;
   }
 
   .main-tabs-nav {
-    max-width: calc(100% - 54px);
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .deck-method-grid,
