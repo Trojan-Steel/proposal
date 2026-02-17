@@ -60,6 +60,29 @@ function getContentType(ext) {
   return map[ext] || "application/octet-stream";
 }
 
+function resolveStaticCandidate(pathname) {
+  const candidates = [];
+  let requestedPath = path.join(projectRoot, pathname);
+  if (pathname.endsWith("/")) {
+    requestedPath = path.join(projectRoot, pathname, "index.html");
+  }
+  if (!path.extname(requestedPath)) {
+    requestedPath = `${requestedPath}.html`;
+  }
+  candidates.push(requestedPath);
+
+  let publicPath = path.join(projectRoot, "public", pathname);
+  if (pathname.endsWith("/")) {
+    publicPath = path.join(projectRoot, "public", pathname, "index.html");
+  }
+  if (!path.extname(publicPath)) {
+    publicPath = `${publicPath}.html`;
+  }
+  candidates.push(publicPath);
+
+  return candidates;
+}
+
 function sendJson(res, status, body) {
   const json = JSON.stringify(body);
   res.statusCode = status;
@@ -107,6 +130,9 @@ async function renderProposalPdf(proposalData) {
     await page.waitForSelector(".proposal-page", { timeout: 20000 });
     await page.emulateMediaType("print");
     await page.evaluateHandle("document.fonts.ready");
+    await page.waitForFunction(() => !document.fonts || document.fonts.status === "loaded", {
+      timeout: 20000,
+    });
     await page.addStyleTag({
       content: `
         @page { size: Letter; margin: 0.5in; }
@@ -115,7 +141,15 @@ async function renderProposalPdf(proposalData) {
           background: #fff !important;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
-          font-family: Arial, Helvetica, sans-serif !important;
+          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
+        }
+        .proposal-shell,
+        .proposal-root,
+        .proposal-page,
+        .terms-page-with-ack,
+        .terms-final-content,
+        .terms-ack-bottom {
+          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
         }
         .proposal-tools { display: none !important; }
         .proposal-shell { max-width: none !important; margin: 0 !important; padding: 0 !important; }
@@ -213,29 +247,30 @@ const server = http.createServer(async (req, res) => {
     }
 
     const pathname = decodeURIComponent(requestUrl.pathname || "/");
-    let requestedPath = path.join(projectRoot, pathname);
-    if (pathname.endsWith("/")) {
-      requestedPath = path.join(projectRoot, pathname, "index.html");
-    }
-    if (!path.extname(requestedPath)) {
-      requestedPath = `${requestedPath}.html`;
-    }
     const normalizedRoot = path.resolve(projectRoot) + path.sep;
-    const normalizedRequested = path.resolve(requestedPath);
-    if (!normalizedRequested.startsWith(normalizedRoot)) {
+    const staticCandidates = resolveStaticCandidate(pathname).map((candidate) => path.resolve(candidate));
+    const safeCandidates = staticCandidates.filter((candidate) => candidate.startsWith(normalizedRoot));
+    if (!safeCandidates.length) {
       res.statusCode = 403;
       res.end("Forbidden");
       return;
     }
-    fs.readFile(normalizedRequested, (error, buffer) => {
-      if (error) {
-        res.statusCode = 404;
-        res.end("Not found");
-        return;
+
+    let served = false;
+    for (const candidate of safeCandidates) {
+      if (!fs.existsSync(candidate)) {
+        continue;
       }
-      res.setHeader("Content-Type", getContentType(path.extname(normalizedRequested).toLowerCase()));
+      const buffer = fs.readFileSync(candidate);
+      res.setHeader("Content-Type", getContentType(path.extname(candidate).toLowerCase()));
       res.end(buffer);
-    });
+      served = true;
+      break;
+    }
+    if (!served) {
+      res.statusCode = 404;
+      res.end("Not found");
+    }
   } catch (error) {
     sendJson(res, 500, {
       error: String(error?.message || error),

@@ -138,14 +138,9 @@ module.exports = async function handler(req, res) {
     await page.waitForSelector(".proposal-page");
 
     await page.emulateMediaType("print");
-    await page.evaluate(async () => {
-      if (document.fonts && typeof document.fonts.ready?.then === "function") {
-        try {
-          await document.fonts.ready;
-        } catch (_error) {
-          // Continue if fonts API fails.
-        }
-      }
+    await page.evaluateHandle("document.fonts.ready");
+    await page.waitForFunction(() => !document.fonts || document.fonts.status === "loaded", {
+      timeout: LOAD_TIMEOUT_MS,
     });
     await waitForAllImages(page);
 
@@ -157,7 +152,15 @@ module.exports = async function handler(req, res) {
           margin: 0 !important;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
-          font-family: Arial, Helvetica, sans-serif !important;
+          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
+        }
+        .proposal-shell,
+        .proposal-root,
+        .proposal-page,
+        .terms-page-with-ack,
+        .terms-final-content,
+        .terms-ack-bottom {
+          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
         }
         .proposal-tools { display: none !important; }
         .proposal-shell {
