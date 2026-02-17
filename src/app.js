@@ -7482,7 +7482,7 @@ function openProposalGenerator() {
     const quoteRef = getAndLogNextQuoteRef();
     const proposalData = buildProposalDataFromState({ quoteRef });
     window.localStorage.setItem(PROPOSAL_DATA_STORAGE_KEY, JSON.stringify(proposalData));
-    const previewUrl = `tools/proposal.html?returnPage=${encodeURIComponent("pricing")}`;
+    const previewUrl = `/tools/proposal.html?returnPage=${encodeURIComponent("pricing")}`;
     const previewWindow = window.open(previewUrl, "_blank");
     if (!previewWindow) {
       window.location.href = previewUrl;
