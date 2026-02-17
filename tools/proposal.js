@@ -657,7 +657,17 @@
     try {
       const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/api/proposal-render";
-      const healthResponse = await fetch(healthUrl);
+      const healthFallbackUrl = "/proposal-api/health";
+      const proposalFallbackUrl = "/proposal-api/render";
+      const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
+        const response = await fetch(primaryUrl, options);
+        if (canUseLocalFallback && response.status === 404) {
+          return fetch(fallbackUrl, options);
+        }
+        return response;
+      };
+      const healthResponse = await fetchWithLocalFallback(healthUrl, healthFallbackUrl);
       if (!healthResponse.ok) {
         const text = (await healthResponse.text()).slice(0, 200);
         throw new Error(`Health check failed at ${healthUrl} | status ${healthResponse.status} | body: ${text}`);
@@ -666,7 +676,7 @@
       if (!healthJson || healthJson.ok !== true) {
         throw new Error(`Health endpoint returned unexpected payload at ${healthUrl}`);
       }
-      const response = await fetch(proposalApiUrl, {
+      const response = await fetchWithLocalFallback(proposalApiUrl, proposalFallbackUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proposalData: data }),
@@ -691,7 +701,7 @@
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
       window.alert(
-        `PDF GENERATION FAILED.\nHealth URL: /proposal-api/health\nPDF URL: /proposal-api/render\nError: ${message}\nHint: run npm run dev:all and verify /proposal-api/health returns { ok: true }.`,
+        `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/render are used if /api/* is unavailable.`,
       );
     } finally {
       if (downloadButton) {

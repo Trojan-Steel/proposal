@@ -7496,7 +7496,17 @@ function openProposalGenerator() {
       .slice(0, 80) || "proposal";
     const healthUrl = "/api/proposal-health";
     const proposalApiUrl = "/api/proposal-render";
-    fetch(healthUrl)
+    const healthFallbackUrl = "/proposal-api/health";
+    const proposalFallbackUrl = "/proposal-api/render";
+    const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
+      const response = await fetch(primaryUrl, options);
+      if (canUseLocalFallback && response.status === 404) {
+        return fetch(fallbackUrl, options);
+      }
+      return response;
+    };
+    fetchWithLocalFallback(healthUrl, healthFallbackUrl)
       .then(async (healthResponse) => {
         if (!healthResponse.ok) {
           const text = (await healthResponse.text()).slice(0, 200);
@@ -7508,7 +7518,7 @@ function openProposalGenerator() {
         }
       })
       .then(() =>
-        fetch(proposalApiUrl, {
+        fetchWithLocalFallback(proposalApiUrl, proposalFallbackUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ proposalData }),
@@ -7535,7 +7545,7 @@ function openProposalGenerator() {
         const message = error?.message || String(error);
         console.error("Failed to generate proposal PDF", { message, proposalApiUrl, healthUrl, error });
         window.alert(
-          `Unable to download PDF.\nHealth URL: ${healthUrl}\nPDF URL: ${proposalApiUrl}\nError: ${message}\nHint: run npm run dev:all and verify /proposal-api/health returns { ok: true }.`,
+          `Unable to download PDF.\nHealth URL: ${healthUrl}\nPDF URL: ${proposalApiUrl}\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/render are used if /api/* is unavailable.`,
         );
       });
   } catch (error) {
