@@ -7538,9 +7538,7 @@ function renderPricingOptimizationResults() {
       pricingBoostButton.title = "Open optimization to use Boost";
       pricingBoostButton.classList.toggle("is-active", Boolean(state.pricingOptimizationBoost.isBoosted));
       pricingBoostButton.setAttribute("aria-pressed", state.pricingOptimizationBoost.isBoosted ? "true" : "false");
-      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>${
-        state.pricingOptimizationBoost.isBoosted ? "Un-boost" : "Boost"
-      }</span>`;
+      pricingBoostButton.textContent = state.pricingOptimizationBoost.isBoosted ? "Revert" : "Boost";
     }
     pricingOptimizeResults.classList.add("hidden");
     pricingOptimizeResults.innerHTML = "";
@@ -7561,12 +7559,12 @@ function renderPricingOptimizationResults() {
     if (state.pricingOptimizationBoost.isBoosted) {
       pricingBoostButton.disabled = false;
       pricingBoostButton.title = "Restore original margin";
-      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>Un-boost</span>`;
+      pricingBoostButton.textContent = "Revert";
     } else {
       const disableBoost = boostUnavailableReason !== "";
       pricingBoostButton.disabled = disableBoost;
       pricingBoostButton.title = disableBoost ? boostUnavailableReason : "Boost lowest Trojan option";
-      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>Boost</span>`;
+      pricingBoostButton.textContent = "Boost";
     }
   }
   if (!optimization.hasComparableScope || optimization.scenarios.length === 0) {

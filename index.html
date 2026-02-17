@@ -13,7 +13,6 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <button id="resetProjectSideBtn" type="button" class="project-clear-rail"><span class="project-clear-label">CLEAR</span></button>
     <main class="container">
       <header class="global-header">
         <div id="projectNameDisplay" class="project-display">PROJECT</div>
@@ -26,13 +25,6 @@
           <button id="adminOpenButton" type="button" class="admin-link">ADMIN</button>
         </div>
       </header>
-      <nav id="mainTabsNav" class="main-tabs-nav" aria-label="Main Navigation">
-        <button type="button" class="main-tab-button" data-main-tab="project"><span class="main-tab-label">INPUT</span></button>
-        <button type="button" class="main-tab-button hidden" data-main-tab="takeoff"><span class="main-tab-label">TAKEOFF</span></button>
-        <button type="button" class="main-tab-button" data-main-tab="deck"><span class="main-tab-label">DECK</span></button>
-        <button type="button" class="main-tab-button" data-main-tab="joist"><span class="main-tab-label">JOIST</span></button>
-        <button type="button" class="main-tab-button" data-main-tab="pricing"><span class="main-tab-label">PRICING</span></button>
-      </nav>
 
       <section id="page-project" class="wizard-page">
         <section class="card" aria-labelledby="project-page-heading">
@@ -214,10 +206,7 @@
           <div class="pricing-heading-row">
             <h1 id="pricing-page-heading">PRICING</h1>
             <button id="pricingOptimizeButton" type="button" class="btn-pricing-optimize" aria-label="Optimize">&#x26A1;&#xFE0E;</button>
-            <button id="pricingBoostButton" type="button" class="btn-pricing-boost" aria-label="Boost optimization option">
-              <span aria-hidden="true">&#9889;</span>
-              <span>Boost</span>
-            </button>
+            <button id="pricingBoostButton" type="button" class="btn-pricing-boost" aria-label="Boost optimization option">Boost</button>
           </div>
           <div id="pricingOptimizeResults" class="pricing-optimize-results hidden"></div>
 
@@ -388,6 +377,19 @@
           </div>
         </section>
       </section>
+
+      <div class="bottom-rails">
+        <button id="resetProjectSideBtn" type="button" class="project-clear-rail">
+          <span class="project-clear-label">CLEAR</span>
+        </button>
+        <nav id="mainTabsNav" class="main-tabs-nav" aria-label="Main Navigation">
+          <button type="button" class="main-tab-button" data-main-tab="project"><span class="main-tab-label">INPUT</span></button>
+          <button type="button" class="main-tab-button hidden" data-main-tab="takeoff"><span class="main-tab-label">TAKEOFF</span></button>
+          <button type="button" class="main-tab-button" data-main-tab="deck"><span class="main-tab-label">DECK</span></button>
+          <button type="button" class="main-tab-button" data-main-tab="joist"><span class="main-tab-label">JOIST</span></button>
+          <button type="button" class="main-tab-button" data-main-tab="pricing"><span class="main-tab-label">PRICING</span></button>
+        </nav>
+      </div>
     </main>
 <script>
   window.GOOGLE_MAPS_API_KEY = "AIzaSyCL97WL8m_1CWdO-se-_N3UHPCY1iepfgk";
