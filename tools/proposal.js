@@ -656,7 +656,7 @@
     }
     try {
       const healthUrl = "/api/proposal-health";
-      const proposalApiUrl = "/proposal-api/render";
+      const proposalApiUrl = "/api/proposal-render";
       const healthResponse = await fetch(healthUrl);
       if (!healthResponse.ok) {
         const text = (await healthResponse.text()).slice(0, 200);
