@@ -934,23 +934,50 @@ button:focus {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  background: #f6f8fc;
-  color: #304059;
+  padding: 6px 12px;
+  min-height: 31px;
+  border: 1px solid rgba(243, 2, 9, 0.35);
+  background: linear-gradient(180deg, #fff8f8 0%, #ffe7e8 100%);
+  color: var(--accent-dark);
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  box-shadow: 0 1px 0 rgba(7, 4, 27, 0.04);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.12s ease,
+    box-shadow 0.16s ease;
 }
 
 .btn-pricing-boost:hover:not(:disabled) {
-  border-color: #9eb0cc;
-  background: #edf2fb;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #ffe3e4 0%, #ffd1d3 100%);
+  box-shadow: 0 2px 8px rgba(243, 2, 9, 0.14);
+}
+
+.btn-pricing-boost:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-pricing-boost:focus-visible {
+  outline: 2px solid rgba(243, 2, 9, 0.35);
+  outline-offset: 1px;
+}
+
+.btn-pricing-boost.is-active {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(243, 2, 9, 0.24);
 }
 
 .btn-pricing-boost:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .pricing-optimize-loading-text {

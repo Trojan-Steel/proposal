@@ -7536,6 +7536,8 @@ function renderPricingOptimizationResults() {
     if (pricingBoostButton) {
       pricingBoostButton.disabled = true;
       pricingBoostButton.title = "Open optimization to use Boost";
+      pricingBoostButton.classList.toggle("is-active", Boolean(state.pricingOptimizationBoost.isBoosted));
+      pricingBoostButton.setAttribute("aria-pressed", state.pricingOptimizationBoost.isBoosted ? "true" : "false");
       pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>${
         state.pricingOptimizationBoost.isBoosted ? "Un-boost" : "Boost"
       }</span>`;
@@ -7554,6 +7556,8 @@ function renderPricingOptimizationResults() {
   state.pricingOptimizationScenarios = optimization.scenarios;
   const boostUnavailableReason = optimization.boostContext?.unavailableReason || "";
   if (pricingBoostButton) {
+    pricingBoostButton.classList.toggle("is-active", Boolean(state.pricingOptimizationBoost.isBoosted));
+    pricingBoostButton.setAttribute("aria-pressed", state.pricingOptimizationBoost.isBoosted ? "true" : "false");
     if (state.pricingOptimizationBoost.isBoosted) {
       pricingBoostButton.disabled = false;
       pricingBoostButton.title = "Restore original margin";
