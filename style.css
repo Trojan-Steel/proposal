@@ -930,6 +930,29 @@ button:focus {
   bottom: 3px;
 }
 
+.btn-pricing-boost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: #f6f8fc;
+  color: #304059;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.btn-pricing-boost:hover:not(:disabled) {
+  border-color: #9eb0cc;
+  background: #edf2fb;
+}
+
+.btn-pricing-boost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .pricing-optimize-loading-text {
   margin: 0;
   font-weight: 700;
@@ -978,6 +1001,30 @@ button,
 .pricing-optimization-best {
   border-color: var(--accent);
   background: #fff5f5;
+}
+
+.pricing-optimization-boosted {
+  border-color: #1c6f68;
+  background: #eff9f4;
+}
+
+.pricing-boosted-badge {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px solid #1c6f68;
+  color: #1c6f68;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.pricing-boost-toast {
+  margin: 8px 0 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #5f4a12;
 }
 
 .pricing-optimization-actions {

@@ -2,6 +2,11 @@ import "./weights.js";
 import { supabase, supabaseConfig } from "./supabaseClient.js";
 import { computeEffectiveUnitPrice, computeLineTotals, toCurrency, toPct } from "./utils/optimizationPricing.mjs";
 import { computeDeckRollups } from "./utils/deckRollups.mjs";
+import {
+  buildOptimizationBoostPlan,
+  hasTrojanDeckOption,
+  isCscOnlyOption,
+} from "./utils/optimizationBoost.mjs";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py
@@ -605,6 +610,17 @@ const state = {
     deckAssignments: [],
     joistVendor: "",
     label: "",
+    scenarioId: "",
+    trojanDeckMarginPercentOverride: null,
+  },
+  pricingOptimizationBoost: {
+    isBoosted: false,
+    boostedOptionId: null,
+    boostedOriginalTrojanMarginPercent: null,
+    boostedTrojanMarginPercent: null,
+    benchmarkSubtotal: 0,
+    targetSubtotal: 0,
+    notice: "",
   },
   pricingMargins: {
     trojanDeck: 15,
@@ -683,6 +699,7 @@ const pricingBackButton = document.getElementById("pricingBackButton");
 const resetProjectBtn = document.getElementById("resetProjectBtn");
 const pricingStartButton = document.getElementById("pricingStartButton");
 const pricingOptimizeButton = document.getElementById("pricingOptimizeButton");
+const pricingBoostButton = document.getElementById("pricingBoostButton");
 const pricingProposalButton = document.getElementById("pricingProposalButton");
 const pricingOptimizeResults = document.getElementById("pricingOptimizeResults");
 
@@ -825,6 +842,7 @@ let lastMilesRouteKey = "";
 let lastMilesRequestToken = 0;
 let pricingOptimizationTimer = null;
 let adminStatusTimer = null;
+const OPTIMIZATION_BOOST_MAX_MARGIN_PERCENT = 50;
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-US", {
@@ -874,8 +892,19 @@ function getPricingMarginPercent(sectionKey) {
   return parsePositiveNumberOrZero(state.pricingMargins[sectionKey]);
 }
 
-function applyPricingMargin(subtotal, sectionKey) {
-  const marginPercent = getPricingMarginPercent(sectionKey);
+function getAppliedOptimizationTrojanMarginPercentOverride() {
+  const value = state.appliedOptimizationSelection?.trojanDeckMarginPercentOverride;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return parsePositiveNumberOrZero(value);
+}
+
+function applyPricingMargin(subtotal, sectionKey, overrideMarginPercent = null) {
+  const marginPercent =
+    overrideMarginPercent === null || overrideMarginPercent === undefined
+      ? getPricingMarginPercent(sectionKey)
+      : parsePositiveNumberOrZero(overrideMarginPercent);
   const marginAmount = subtotal * (marginPercent / 100);
   return {
     marginPercent,
@@ -1564,6 +1593,7 @@ function saveCalculatorDraftState() {
     pricingMarginOverrides: { ...state.pricingMarginOverrides },
     pricingDetailing: { ...state.pricingDetailing },
     appliedOptimizationSelection: { ...state.appliedOptimizationSelection },
+    pricingOptimizationBoost: { ...state.pricingOptimizationBoost },
     pricingSections: { ...state.pricingSections },
     currentPage: state.currentPage,
   };
@@ -1681,6 +1711,12 @@ function loadCalculatorDraftState() {
         ...parsed.appliedOptimizationSelection,
       };
     }
+    if (parsed.pricingOptimizationBoost && typeof parsed.pricingOptimizationBoost === "object") {
+      state.pricingOptimizationBoost = {
+        ...state.pricingOptimizationBoost,
+        ...parsed.pricingOptimizationBoost,
+      };
+    }
     if (parsed.pricingSections && typeof parsed.pricingSections === "object") {
       state.pricingSections = { ...state.pricingSections, ...parsed.pricingSections };
     }
@@ -1785,6 +1821,17 @@ function resetProjectStateInMemory() {
     deckAssignments: [],
     joistVendor: "",
     label: "",
+    scenarioId: "",
+    trojanDeckMarginPercentOverride: null,
+  };
+  state.pricingOptimizationBoost = {
+    isBoosted: false,
+    boostedOptionId: null,
+    boostedOriginalTrojanMarginPercent: null,
+    boostedTrojanMarginPercent: null,
+    benchmarkSubtotal: 0,
+    targetSubtotal: 0,
+    notice: "",
   };
   state.pricingMargins = {
     trojanDeck: 15,
@@ -5662,7 +5709,7 @@ function getTrojanDeckCogsBreakdown(trojanDeckTonsOverride = null) {
   const outboundCost = trucks * Math.max(miles * outboundRate, minimumFreightPerTruck);
   const totalCogs = coilCost + inboundCost + laborCost + outboundCost;
   const minimumMarginAmount = getTrojanMinimumProjectMargin();
-  const marginApplied = applyPricingMargin(totalCogs, "trojanDeck");
+  const marginApplied = applyPricingMargin(totalCogs, "trojanDeck", getAppliedOptimizationTrojanMarginPercentOverride());
   const marginAmount = marginApplied.marginAmount;
   const totalWithMargin = totalCogs + marginAmount;
 
@@ -7177,6 +7224,119 @@ function cloneOptimizationJoistBreakdown(breakdown) {
   };
 }
 
+function getScenarioDeckVendors(scenario) {
+  return Array.from(
+    new Set(
+      (scenario?.deckBreakdown?.entries || [])
+        .map((entry) => String(entry.vendor || "").trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getScenarioTrojanDeckEntry(scenario) {
+  return (scenario?.deckBreakdown?.entries || []).find(
+    (entry) => String(entry.vendor || "").trim().toUpperCase() === "TROJAN",
+  );
+}
+
+function applyBoostToScenario(scenario, boostedTrojanMarginPercent) {
+  const trojanEntry = getScenarioTrojanDeckEntry(scenario);
+  if (!trojanEntry) {
+    return scenario;
+  }
+  const safeMarginPercent = parsePositiveNumberOrZero(boostedTrojanMarginPercent);
+  const trojanSubtotal = parsePositiveNumberOrZero(trojanEntry.subtotalCost);
+  const trojanMarginAmount = trojanSubtotal * (safeMarginPercent / 100);
+  trojanEntry.marginPercent = safeMarginPercent;
+  trojanEntry.marginAmount = trojanMarginAmount;
+  trojanEntry.totalCost = trojanSubtotal + trojanMarginAmount;
+  if (scenario.deckBreakdown) {
+    scenario.deckBreakdown.marginAmount = (scenario.deckBreakdown.entries || []).reduce(
+      (sum, entry) => sum + parsePositiveNumberOrZero(entry.marginAmount),
+      0,
+    );
+    scenario.deckBreakdown.totalCost = (scenario.deckBreakdown.entries || []).reduce(
+      (sum, entry) => sum + parsePositiveNumberOrZero(entry.totalCost),
+      0,
+    );
+  }
+  scenario.marginAmount = (scenario.deckBreakdown?.marginAmount || 0) + (scenario.joistBreakdown?.marginAmount || 0);
+  scenario.subtotalCost =
+    (scenario.deckBreakdown?.totalCost || 0) + (scenario.joistBreakdown?.totalCost || 0) + (scenario.accessoriesCost || 0);
+  const detailingBreakdown = getDetailingPricingBreakdown(
+    scenario.subtotalCost,
+    parsePositiveNumberOrZero(scenario.deckTons),
+    parsePositiveNumberOrZero(scenario.joistTons),
+    { syncState: false },
+  );
+  scenario.detailingAmount = parsePositiveNumberOrZero(detailingBreakdown.detailingAmount);
+  scenario.finalTotal = parsePositiveNumberOrZero(detailingBreakdown.finalTotal);
+  scenario.boosted = true;
+  scenario.boostedTrojanMarginPercent = safeMarginPercent;
+  return scenario;
+}
+
+function getOptimizationBoostContextFromScenarios(scenarios = []) {
+  const optionRows = (scenarios || []).map((scenario) => {
+    const trojanEntry = getScenarioTrojanDeckEntry(scenario);
+    return {
+      id: String(scenario.id || ""),
+      subtotal: parsePositiveNumberOrZero(scenario.subtotalCost),
+      deckVendors: getScenarioDeckVendors(scenario),
+      joistVendor: String(scenario.joistVendor || "").trim().toUpperCase(),
+      trojanDeckBaseSubtotal: parsePositiveNumberOrZero(trojanEntry?.subtotalCost),
+      currentTrojanMarginPercent: parsePositiveNumberOrZero(trojanEntry?.marginPercent),
+    };
+  });
+  const plan = buildOptimizationBoostPlan(optionRows, OPTIMIZATION_BOOST_MAX_MARGIN_PERCENT);
+  const hasCscOnlyOption = optionRows.some((option) => isCscOnlyOption(option));
+  const hasTrojanManufacturingOption = optionRows.some((option) => hasTrojanDeckOption(option));
+  let unavailableReason = "";
+  if (!hasCscOnlyOption) {
+    unavailableReason = "No CSC-only benchmark found.";
+  } else if (!hasTrojanManufacturingOption) {
+    unavailableReason = "No Trojan manufacturing option found.";
+  }
+  return {
+    plan,
+    unavailableReason,
+  };
+}
+
+function applyBoostToScenarioListIfNeeded(scenarios) {
+  if (!state.pricingOptimizationBoost.isBoosted || !state.pricingOptimizationBoost.boostedOptionId) {
+    return scenarios;
+  }
+  return (scenarios || []).map((scenario) => {
+    if (String(scenario.id || "") !== String(state.pricingOptimizationBoost.boostedOptionId)) {
+      return scenario;
+    }
+    return applyBoostToScenario(scenario, state.pricingOptimizationBoost.boostedTrojanMarginPercent);
+  });
+}
+
+function sortScenariosForDisplay(scenarios) {
+  const sorted = [...(scenarios || [])].sort((a, b) => {
+    if (a.finalTotal !== b.finalTotal) {
+      return a.finalTotal - b.finalTotal;
+    }
+    return b.marginAmount - a.marginAmount;
+  });
+  if (!state.pricingOptimizationBoost.isBoosted || !state.pricingOptimizationBoost.boostedOptionId) {
+    return sorted;
+  }
+  const boostedId = String(state.pricingOptimizationBoost.boostedOptionId);
+  return sorted.sort((a, b) => {
+    const aBoosted = String(a.id || "") === boostedId ? 1 : 0;
+    const bBoosted = String(b.id || "") === boostedId ? 1 : 0;
+    if (aBoosted !== bBoosted) {
+      return bBoosted - aBoosted;
+    }
+    return 0;
+  });
+}
+
 function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
   const accessoriesTotal = getAccessoriesCogsBreakdown().totalCogs || 0;
   const pricedSupplierSets = getPricedSupplierSets(adminPricingSnapshot);
@@ -7263,6 +7423,7 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
         leadTimesConfig: getLeadTimesConfig(),
       });
       scenarioBySignature.set(signature, {
+        id: signature,
         label,
         deckVendor: deckScenario.deckVendor || "",
         deckMode: deckScenario.deckMode || "auto",
@@ -7271,6 +7432,8 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
         deckBreakdown,
         joistBreakdown,
         accessoriesCost: accessoriesTotal,
+        deckTons: requirements.deckTons,
+        joistTons: requirements.joistTons,
         subtotalCost,
         detailingAmount: parsePositiveNumberOrZero(detailingBreakdown.detailingAmount),
         finalTotal,
@@ -7280,12 +7443,7 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
     });
   });
 
-  return Array.from(scenarioBySignature.values()).sort((a, b) => {
-    if (a.finalTotal !== b.finalTotal) {
-      return a.finalTotal - b.finalTotal;
-    }
-    return b.marginAmount - a.marginAmount;
-  });
+  return Array.from(scenarioBySignature.values());
 }
 
 function buildPricingOptimizationScenarios() {
@@ -7312,13 +7470,17 @@ function buildPricingOptimizationScenarios() {
     getJoistOptimizationCandidateVendors(normalizedRules),
   );
 
-  const scenarios = buildScenarioList(requirements, catalog, adminPricingSnapshot);
+  const baseScenarios = buildScenarioList(requirements, catalog, adminPricingSnapshot);
+  const boostedScenarios = applyBoostToScenarioListIfNeeded(baseScenarios);
+  const scenarios = sortScenariosForDisplay(boostedScenarios);
+  const boostContext = getOptimizationBoostContextFromScenarios(baseScenarios);
   return {
     hasComparableScope: requirements.hasDeckScope || requirements.hasJoistScope,
     deckTons: requirements.deckTons,
     joistTons: requirements.joistTons,
     eligibleDeckVendors: deckVendors,
     eligibleJoistVendors: joistVendors,
+    boostContext,
     scenarios,
     bestScenario: scenarios[0] || null,
   };
@@ -7336,6 +7498,13 @@ function renderPricingOptimizationResults() {
     );
   }
   if (!state.pricingOptimizationVisible) {
+    if (pricingBoostButton) {
+      pricingBoostButton.disabled = true;
+      pricingBoostButton.title = "Open optimization to use Boost";
+      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>${
+        state.pricingOptimizationBoost.isBoosted ? "Un-boost" : "Boost"
+      }</span>`;
+    }
     pricingOptimizeResults.classList.add("hidden");
     pricingOptimizeResults.innerHTML = "";
     return;
@@ -7348,6 +7517,19 @@ function renderPricingOptimizationResults() {
 
   const optimization = buildPricingOptimizationScenarios();
   state.pricingOptimizationScenarios = optimization.scenarios;
+  const boostUnavailableReason = optimization.boostContext?.unavailableReason || "";
+  if (pricingBoostButton) {
+    if (state.pricingOptimizationBoost.isBoosted) {
+      pricingBoostButton.disabled = false;
+      pricingBoostButton.title = "Restore original margin";
+      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>Un-boost</span>`;
+    } else {
+      const disableBoost = boostUnavailableReason !== "";
+      pricingBoostButton.disabled = disableBoost;
+      pricingBoostButton.title = disableBoost ? boostUnavailableReason : "Boost lowest Trojan option";
+      pricingBoostButton.innerHTML = `<span aria-hidden="true">&#9889;</span><span>Boost</span>`;
+    }
+  }
   if (!optimization.hasComparableScope || optimization.scenarios.length === 0) {
     const deckConstraintText =
       optimization.deckTons > 0 && optimization.eligibleDeckVendors.length === 0
@@ -7365,9 +7547,13 @@ function renderPricingOptimizationResults() {
     return;
   }
 
+  const boostNoticeMarkup = state.pricingOptimizationBoost.notice
+    ? `<p class="pricing-boost-toast">${escapeHtml(state.pricingOptimizationBoost.notice)}</p>`
+    : "";
   const scenarioMarkup = optimization.scenarios
     .map((scenario, index) => {
       const isBest = index === 0;
+      const isBoosted = Boolean(scenario.boosted);
       const isApplied =
         state.appliedOptimizationSelection.label !== "" &&
         state.appliedOptimizationSelection.label === scenario.label &&
@@ -7441,10 +7627,13 @@ function renderPricingOptimizationResults() {
             formatLeadTimeRangeText(scenario.leadTimeRange) || "N/A"
           }</p>`
         : "";
+      const boostedBadge = isBoosted ? '<span class="pricing-boosted-badge">BOOSTED</span>' : "";
       return `
-        <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""}">
+        <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""} ${
+          isBoosted ? "pricing-optimization-boosted" : ""
+        }">
           <div class="pricing-line-item-main">
-            <span>OPTION: ${scenario.label}</span>
+            <span>OPTION: ${scenario.label} ${boostedBadge}</span>
             <strong>${formatMoney(scenario.subtotalCost || 0)}</strong>
           </div>
           <div class="pricing-option-secondary">
@@ -7476,6 +7665,7 @@ function renderPricingOptimizationResults() {
   pricingOptimizeResults.classList.remove("hidden");
   pricingOptimizeResults.innerHTML = `
     <div class="pricing-project-summary">
+      ${boostNoticeMarkup}
       <div class="pricing-line-item">
         <div class="pricing-line-item-main">
           <span>OPTIMIZATION SUMMARY</span>
@@ -7487,11 +7677,66 @@ function renderPricingOptimizationResults() {
   `;
 }
 
+function togglePricingOptimizationBoost() {
+  if (state.pricingOptimizationBoost.isBoosted) {
+    const unboostingAppliedScenario =
+      state.appliedOptimizationSelection.scenarioId &&
+      String(state.appliedOptimizationSelection.scenarioId) === String(state.pricingOptimizationBoost.boostedOptionId || "");
+    state.pricingOptimizationBoost = {
+      isBoosted: false,
+      boostedOptionId: null,
+      boostedOriginalTrojanMarginPercent: null,
+      boostedTrojanMarginPercent: null,
+      benchmarkSubtotal: 0,
+      targetSubtotal: 0,
+      notice: "",
+    };
+    if (unboostingAppliedScenario) {
+      state.appliedOptimizationSelection.trojanDeckMarginPercentOverride = null;
+      updateCalculator();
+      return;
+    }
+    renderPricingOptimizationResults();
+    return;
+  }
+
+  const optimization = buildPricingOptimizationScenarios();
+  const boostPlan = optimization.boostContext?.plan || { ok: false, reason: "No optimization data available." };
+  if (!boostPlan.ok) {
+    state.pricingOptimizationBoost.notice = boostPlan.reason || "Unable to boost with current options.";
+    renderPricingOptimizationResults();
+    return;
+  }
+
+  state.pricingOptimizationBoost = {
+    isBoosted: true,
+    boostedOptionId: boostPlan.boostedOptionId,
+    boostedOriginalTrojanMarginPercent: boostPlan.boostedOriginalTrojanMarginPercent,
+    boostedTrojanMarginPercent: boostPlan.boostedTrojanMarginPercent,
+    benchmarkSubtotal: boostPlan.benchmarkSubtotal,
+    targetSubtotal: boostPlan.targetSubtotal,
+    notice: "",
+  };
+
+  const applyingToCurrentSelection =
+    state.appliedOptimizationSelection.scenarioId &&
+    String(state.appliedOptimizationSelection.scenarioId) === String(boostPlan.boostedOptionId);
+  if (applyingToCurrentSelection) {
+    state.appliedOptimizationSelection.trojanDeckMarginPercentOverride = boostPlan.boostedTrojanMarginPercent;
+    updateCalculator();
+    return;
+  }
+  renderPricingOptimizationResults();
+}
+
 function applyPricingOptimizationScenario(index) {
   const scenario = state.pricingOptimizationScenarios[index];
   if (!scenario) {
     return;
   }
+  const boostedScenarioId = String(state.pricingOptimizationBoost.boostedOptionId || "");
+  const shouldApplyBoostedTrojanMargin =
+    state.pricingOptimizationBoost.isBoosted && boostedScenarioId !== "" && boostedScenarioId === String(scenario.id || "");
   state.appliedOptimizationSelection = {
     deckMode: scenario.deckMode || "auto",
     deckVendor: scenario.deckVendor || "",
@@ -7503,6 +7748,10 @@ function applyPricingOptimizationScenario(index) {
       : [],
     joistVendor: scenario.joistVendor || "",
     label: scenario.label || "",
+    scenarioId: scenario.id || "",
+    trojanDeckMarginPercentOverride: shouldApplyBoostedTrojanMargin
+      ? parsePositiveNumberOrZero(state.pricingOptimizationBoost.boostedTrojanMarginPercent)
+      : null,
   };
   state.pricingOptimizationVisible = false;
   updateCalculator();
@@ -7952,9 +8201,13 @@ function updateVendorStrategyAndAssignments() {
   } else if (forcedDeckMode === "single" && forcedDeckVendor !== "") {
     state.appliedOptimizationSelection.deckMode = "auto";
     state.appliedOptimizationSelection.deckVendor = "";
+    state.appliedOptimizationSelection.scenarioId = "";
+    state.appliedOptimizationSelection.trojanDeckMarginPercentOverride = null;
   } else if (forcedDeckMode === "mix" && forcedDeckAssignmentMap.size > 0) {
     state.appliedOptimizationSelection.deckMode = "auto";
     state.appliedOptimizationSelection.deckAssignments = [];
+    state.appliedOptimizationSelection.scenarioId = "";
+    state.appliedOptimizationSelection.trojanDeckMarginPercentOverride = null;
   }
 
   const forcedJoistVendor = String(state.appliedOptimizationSelection.joistVendor || "").trim().toUpperCase();
@@ -9151,6 +9404,11 @@ pricingOptimizeButton?.addEventListener("click", (event) => {
   state.pricingOptimizationVisible = !state.pricingOptimizationVisible;
   renderPricingOptimizationResults();
 });
+pricingBoostButton?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  togglePricingOptimizationBoost();
+});
 pricingProposalButton?.addEventListener("click", () => {
   openProposalGenerator();
 });
@@ -9674,6 +9932,11 @@ pagePricing.addEventListener("click", (event) => {
   const proposalButton = target.closest("#pricingProposalButton");
   if (proposalButton) {
     openProposalGenerator();
+    return;
+  }
+  const boostButton = target.closest("#pricingBoostButton");
+  if (boostButton) {
+    togglePricingOptimizationBoost();
     return;
   }
   const optimizeButton = target.closest("#pricingOptimizeButton");
