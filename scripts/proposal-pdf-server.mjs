@@ -7,23 +7,33 @@ import puppeteer from "puppeteer";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
-const host = "localhost";
+const host = process.env.PROPOSAL_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.PROPOSAL_PORT || process.env.PORT || "4174", 10);
 const ROUTES = [
   "GET /health",
   "GET /proposal-api/health",
+  "POST /proposal",
   "POST /render",
+  "POST /proposal-api/proposal",
   "POST /proposal-api/render",
   "POST /api/proposal-pdf",
+  "POST /api/proposal-render",
 ];
 
-let browser;
-try {
-  browser = await puppeteer.launch({ headless: "new" });
-} catch (error) {
-  console.error("Failed to launch Puppeteer for proposal server.");
-  console.error(error);
-  process.exit(1);
+let browserPromise = null;
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer
+      .launch({
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      })
+      .catch((error) => {
+        browserPromise = null;
+        throw error;
+      });
+  }
+  return browserPromise;
 }
 
 function sanitizeFilename(value) {
@@ -74,9 +84,19 @@ async function readRequestJson(req) {
 }
 
 async function renderProposalPdf(proposalData) {
+  const browser = await getBrowser();
   const page = await browser.newPage();
   try {
     await page.setViewport({ width: 1400, height: 1800, deviceScaleFactor: 2 });
+    await page.setRequestInterception(true);
+    page.on("request", (interceptedRequest) => {
+      const requestUrl = interceptedRequest.url();
+      if (requestUrl.includes("fonts.googleapis.com") || requestUrl.includes("fonts.gstatic.com")) {
+        interceptedRequest.abort();
+        return;
+      }
+      interceptedRequest.continue();
+    });
     await page.evaluateOnNewDocument((data) => {
       window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
     }, proposalData);
@@ -85,7 +105,38 @@ async function renderProposalPdf(proposalData) {
       timeout: 30000,
     });
     await page.waitForSelector(".proposal-page", { timeout: 20000 });
+    await page.emulateMediaType("print");
     await page.evaluateHandle("document.fonts.ready");
+    await page.addStyleTag({
+      content: `
+        @page { size: Letter; margin: 0.5in; }
+        html, body {
+          margin: 0 !important;
+          background: #fff !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+          font-family: Arial, Helvetica, sans-serif !important;
+        }
+        .proposal-tools { display: none !important; }
+        .proposal-shell { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+        .proposal-root { display: block !important; gap: 0 !important; overflow: visible !important; }
+        .proposal-page {
+          width: auto !important;
+          min-height: 0 !important;
+          height: auto !important;
+          margin: 0 !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          overflow: visible !important;
+          break-inside: avoid-page;
+          page-break-inside: avoid;
+          page-break-before: auto !important;
+        }
+        .proposal-page.page-break { break-after: page; page-break-after: always; }
+        .proposal-page:last-child { break-after: auto !important; page-break-after: auto !important; }
+      `,
+    });
     const pdfBuffer = await page.pdf({
       printBackground: true,
       preferCSSPageSize: true,
@@ -120,9 +171,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (
       req.method === "POST" &&
-      (requestUrl.pathname === "/render" ||
+      (requestUrl.pathname === "/proposal" ||
+        requestUrl.pathname === "/render" ||
+        requestUrl.pathname === "/proposal-api/proposal" ||
         requestUrl.pathname === "/proposal-api/render" ||
-        requestUrl.pathname === "/api/proposal-pdf")
+        requestUrl.pathname === "/api/proposal-pdf" ||
+        requestUrl.pathname === "/api/proposal-render")
     ) {
       const payload = await readRequestJson(req);
       const proposalData = payload?.proposalData && typeof payload.proposalData === "object" ? payload.proposalData : null;
@@ -130,7 +184,16 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: "Missing proposalData payload" });
         return;
       }
-      const pdf = await renderProposalPdf(proposalData);
+      let pdf;
+      try {
+        pdf = await renderProposalPdf(proposalData);
+      } catch (error) {
+        sendJson(res, 500, {
+          error: "Failed to launch/render with Puppeteer",
+          details: String(error?.message || error),
+        });
+        return;
+      }
       const projectName = sanitizeFilename(proposalData.projectName);
       const quoteRef = sanitizeFilename(proposalData.quoteRef);
       const filename = `${projectName || "project"}-${quoteRef || "proposal"}.pdf`;
@@ -180,6 +243,11 @@ server.listen(port, host, () => {
 });
 
 process.on("SIGINT", async () => {
-  await browser.close();
+  if (browserPromise) {
+    const browser = await browserPromise.catch(() => null);
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+  }
   server.close(() => process.exit(0));
 });

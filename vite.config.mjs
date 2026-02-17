@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/proposal-api": {
-        target: `http://localhost:${proposalPort}`,
+        target: `http://127.0.0.1:${proposalPort}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proposal-api/, ""),
       },

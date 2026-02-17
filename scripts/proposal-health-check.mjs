@@ -1,5 +1,5 @@
 const port = Number.parseInt(process.env.PROPOSAL_PORT || "4174", 10);
-const url = `http://localhost:${port}/health`;
+const url = `http://127.0.0.1:${port}/health`;
 
 async function main() {
   let response;

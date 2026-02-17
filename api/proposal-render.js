@@ -1,5 +1,5 @@
 const chromium = require("@sparticuz/chromium");
-const { chromium: playwrightChromium } = require("playwright-core");
+const puppeteerCore = require("puppeteer-core");
 
 const MAX_BODY_BYTES = 2_000_000;
 const LOAD_TIMEOUT_MS = 45_000;
@@ -56,20 +56,49 @@ async function readRequestJson(req) {
 
 async function launchBrowser() {
   const executablePath = await chromium.executablePath();
-  return playwrightChromium.launch({
+  return puppeteerCore.launch({
     args: chromium.args,
+    defaultViewport: { width: 1400, height: 1800, deviceScaleFactor: 1 },
     executablePath,
     headless: true,
   });
 }
 
+async function waitForAllImages(page) {
+  await page.evaluate(async () => {
+    const images = Array.from(document.querySelectorAll("img"));
+    await Promise.all(
+      images.map(
+        (img) =>
+          new Promise((resolve) => {
+            if (img.complete) {
+              resolve();
+              return;
+            }
+            img.addEventListener("load", () => resolve(), { once: true });
+            img.addEventListener("error", () => resolve(), { once: true });
+          }),
+      ),
+    );
+  });
+}
+
 module.exports = async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed. Use POST with JSON { proposalData: ... }." });
   }
 
   let browser;
+  let page;
   try {
     const payload = await readRequestJson(req);
     const proposalData = payload && isPlainObject(payload.proposalData) ? payload.proposalData : null;
@@ -86,17 +115,29 @@ module.exports = async function handler(req, res) {
     }
 
     browser = await launchBrowser();
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 1400, height: 1800 });
+    page = await browser.newPage();
+    page.setDefaultNavigationTimeout(LOAD_TIMEOUT_MS);
+    page.setDefaultTimeout(LOAD_TIMEOUT_MS);
 
-    await page.addInitScript((data) => {
+    await page.setRequestInterception(true);
+    page.on("request", (interceptedRequest) => {
+      const requestUrl = interceptedRequest.url();
+      if (requestUrl.includes("fonts.googleapis.com") || requestUrl.includes("fonts.gstatic.com")) {
+        interceptedRequest.abort();
+        return;
+      }
+      interceptedRequest.continue();
+    });
+
+    await page.evaluateOnNewDocument((data) => {
       window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
     }, proposalData);
 
     const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
-    await page.goto(targetUrl, { waitUntil: "networkidle", timeout: LOAD_TIMEOUT_MS });
-    await page.waitForSelector(".proposal-page", { timeout: LOAD_TIMEOUT_MS });
+    await page.goto(targetUrl, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".proposal-page");
 
+    await page.emulateMediaType("print");
     await page.evaluate(async () => {
       if (document.fonts && typeof document.fonts.ready?.then === "function") {
         try {
@@ -105,29 +146,18 @@ module.exports = async function handler(req, res) {
           // Continue if fonts API fails.
         }
       }
-      const images = Array.from(document.querySelectorAll("img"));
-      await Promise.all(
-        images.map(
-          (img) =>
-            new Promise((resolve) => {
-              if (img.complete) {
-                resolve();
-                return;
-              }
-              img.addEventListener("load", () => resolve(), { once: true });
-              img.addEventListener("error", () => resolve(), { once: true });
-            }),
-        ),
-      );
     });
+    await waitForAllImages(page);
 
     await page.addStyleTag({
       content: `
         @page { size: Letter; margin: 0.5in; }
         html, body {
           background: #ffffff !important;
+          margin: 0 !important;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
+          font-family: Arial, Helvetica, sans-serif !important;
         }
         .proposal-tools { display: none !important; }
         .proposal-shell {
@@ -138,6 +168,7 @@ module.exports = async function handler(req, res) {
         .proposal-root {
           display: block !important;
           gap: 0 !important;
+          overflow: visible !important;
         }
         .proposal-page {
           width: auto !important;
@@ -150,6 +181,7 @@ module.exports = async function handler(req, res) {
           overflow: visible !important;
           break-inside: avoid-page;
           page-break-inside: avoid;
+          page-break-before: auto !important;
         }
         .proposal-page.page-break {
           break-after: page;
@@ -172,14 +204,14 @@ module.exports = async function handler(req, res) {
         bottom: "0.5in",
         left: "0.5in",
       },
+      timeout: LOAD_TIMEOUT_MS,
     });
-
-    await page.close();
 
     const filename = `${sanitizeFilenamePart(proposalData.projectName, "proposal")}-${sanitizeFilenamePart(
       proposalData.quoteRef,
       "quote",
     )}.pdf`;
+
     res.status(200);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -187,12 +219,19 @@ module.exports = async function handler(req, res) {
     return res.send(Buffer.from(pdfBuffer));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error("proposal-render failed", {
+      message,
+      stack: error instanceof Error ? error.stack : "",
+    });
     const status = /json|request body|missing/i.test(message) ? 400 : 500;
     return res.status(status).json({
       error: message,
       hint: 'POST JSON body like: { "proposalData": { ... } }',
     });
   } finally {
+    if (page) {
+      await page.close().catch(() => {});
+    }
     if (browser) {
       await browser.close().catch(() => {});
     }

@@ -651,7 +651,7 @@
       const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/api/proposal-render";
       const healthFallbackUrl = "/proposal-api/health";
-      const proposalFallbackUrl = "/proposal-api/render";
+      const proposalFallbackUrl = "/proposal-api/proposal";
       const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
       const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
         const response = await fetch(primaryUrl, options);
@@ -691,7 +691,7 @@
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
       window.alert(
-        `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/render are used if /api/* is unavailable.`,
+        `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/proposal are used if /api/* is unavailable.`,
       );
     } finally {
       if (downloadButton) {
