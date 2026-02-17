@@ -7918,28 +7918,9 @@ function updateVendorStrategyAndAssignments() {
     adminPricing,
   );
 
-  const normalizedRules = getActiveSupplierRules()
-    .map((row) => normalizeSupplierRuleRow(row))
-    .filter((row) => row.supplier !== "");
-  const deckLinesForEligibility = state.deckProfiles.filter((line) => parsePositiveNumberOrZero(line.rowTons) > 0);
-  const eligibleDeckVendors = getOptimizationEligibleDeckVendors(
-    deckLinesForEligibility,
-    state.deckFlags || {},
-    normalizedRules,
-    getDeckOptimizationCandidateVendors(normalizedRules),
-  );
-  const eligibleJoistVendors = getOptimizationEligibleJoistVendors(
-    state.deckFlags || {},
-    normalizedRules,
-    getJoistOptimizationCandidateVendors(normalizedRules),
-  );
-
   const forcedDeckMode = String(state.appliedOptimizationSelection.deckMode || "auto").trim().toLowerCase();
   const forcedDeckVendor = String(state.appliedOptimizationSelection.deckVendor || "").trim().toUpperCase();
-  const canForceSingleDeckVendor =
-    forcedDeckMode === "single" &&
-    forcedDeckVendor !== "" &&
-    eligibleDeckVendors.includes(forcedDeckVendor);
+  const canForceSingleDeckVendor = forcedDeckMode === "single" && forcedDeckVendor !== "";
   const forcedDeckAssignments =
     Array.isArray(state.appliedOptimizationSelection.deckAssignments) && forcedDeckMode === "mix"
       ? state.appliedOptimizationSelection.deckAssignments
@@ -7962,12 +7943,6 @@ function updateVendorStrategyAndAssignments() {
       if (!selectedVendor) {
         return;
       }
-      const profile = findDeckProfileById(assignment.lineId);
-      const validTrojan = selectedVendor === "TROJAN" && isTrojanEligibleForLine(profile, state.deckFlags || {});
-      const validNonTrojan = selectedVendor !== "TROJAN" && eligibleDeckVendors.includes(selectedVendor);
-      if (!validTrojan && !validNonTrojan) {
-        return;
-      }
       assignment.vendor = selectedVendor;
       assignment.reason = "Optimization mix override";
       assignment.pricePerTon = getDeckRateForVendor(selectedVendor, parsePositiveNumberOrZero(assignment.tons), adminPricingSnapshot);
@@ -7982,13 +7957,11 @@ function updateVendorStrategyAndAssignments() {
   }
 
   const forcedJoistVendor = String(state.appliedOptimizationSelection.joistVendor || "").trim().toUpperCase();
-  if (forcedJoistVendor !== "" && eligibleJoistVendors.includes(forcedJoistVendor)) {
+  if (forcedJoistVendor !== "") {
     strategy.chosenJoistVendor = forcedJoistVendor;
     if (strategy.pricingSchedule?.joists) {
       strategy.pricingSchedule.joists.vendor = forcedJoistVendor;
     }
-  } else if (forcedJoistVendor !== "") {
-    state.appliedOptimizationSelection.joistVendor = "";
   }
 
   strategy.deckAssignments.forEach((assignment) => {
