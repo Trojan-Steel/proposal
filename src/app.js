@@ -7420,7 +7420,7 @@ function renderPricingOptimizationResults() {
         <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""}">
           <div class="pricing-line-item-main">
             <span>OPTION: ${scenario.label}</span>
-            <strong>${formatMoney(scenario.finalTotal || 0)}</strong>
+            <strong>${formatMoney(scenario.subtotalCost || 0)}</strong>
           </div>
           <div class="pricing-option-secondary">
             <p class="pricing-line-item-meta pricing-line-item-meta-margin">
@@ -7454,7 +7454,7 @@ function renderPricingOptimizationResults() {
       <div class="pricing-line-item">
         <div class="pricing-line-item-main">
           <span>OPTIMIZATION SUMMARY</span>
-          <span>PROJECT PRICE</span>
+          <span>SUBTOTAL PRICE</span>
         </div>
       </div>
       ${scenarioMarkup}
