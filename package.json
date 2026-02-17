@@ -19,7 +19,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
     "@supabase/supabase-js": "^2.96.0",
+    "playwright-core": "^1.58.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

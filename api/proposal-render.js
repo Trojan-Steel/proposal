@@ -1,240 +1,31 @@
+const chromium = require("@sparticuz/chromium");
+const { chromium: playwrightChromium } = require("playwright-core");
+
 const MAX_BODY_BYTES = 2_000_000;
-const LINES_PER_PAGE = 46;
-const CHARS_PER_LINE = 95;
+const LOAD_TIMEOUT_MS = 45_000;
+
+function sanitizeFilenamePart(value, fallback = "proposal") {
+  const cleaned = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return cleaned || fallback;
+}
+
+function resolveBaseUrl(req) {
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").trim();
+  if (!host) {
+    return "";
+  }
+  const protoHeader = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
+  const protocol = protoHeader || "https";
+  return `${protocol}://${host}`;
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function formatMoney(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) {
-    return "-";
-  }
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
-function formatNumber(value, digits = 2) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) {
-    return "-";
-  }
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: digits,
-  }).format(amount);
-}
-
-function safeText(value, fallback = "-") {
-  const text = String(value ?? "").trim();
-  return text || fallback;
-}
-
-function wrapText(text, maxChars = CHARS_PER_LINE) {
-  const words = String(text || "").split(/\s+/).filter(Boolean);
-  if (!words.length) {
-    return [""];
-  }
-  const lines = [];
-  let line = "";
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (candidate.length <= maxChars) {
-      line = candidate;
-      continue;
-    }
-    if (line) {
-      lines.push(line);
-      line = "";
-    }
-    if (word.length <= maxChars) {
-      line = word;
-      continue;
-    }
-    let remaining = word;
-    while (remaining.length > maxChars) {
-      lines.push(remaining.slice(0, maxChars));
-      remaining = remaining.slice(maxChars);
-    }
-    line = remaining;
-  }
-  if (line) {
-    lines.push(line);
-  }
-  return lines.length ? lines : [""];
-}
-
-function escapePdfText(value) {
-  return String(value)
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/\r?\n/g, " ");
-}
-
-function chunkArray(items, size) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
-function buildContentStream(lines) {
-  const textLines = lines.map((line) => `(${escapePdfText(line)}) Tj`);
-  return ["BT", "/F1 11 Tf", "14 TL", "50 742 Td", ...textLines.flatMap((line) => [line, "T*"]), "ET"].join("\n");
-}
-
-function buildSimplePdf(pages) {
-  const objects = [];
-  const pageEntries = [];
-  const fontId = 3;
-  const firstDynamicId = 4;
-
-  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
-
-  let dynamicId = firstDynamicId;
-  for (const pageLines of pages) {
-    const pageId = dynamicId++;
-    const contentId = dynamicId++;
-    const stream = buildContentStream(pageLines);
-    objects[contentId] = `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`;
-    objects[pageId] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
-    pageEntries.push(`${pageId} 0 R`);
-  }
-
-  objects[2] = `<< /Type /Pages /Count ${pageEntries.length} /Kids [${pageEntries.join(" ")}] >>`;
-
-  const output = ["%PDF-1.4"];
-  const offsets = [0];
-  for (let id = 1; id < objects.length; id += 1) {
-    const objectBody = objects[id];
-    if (!objectBody) {
-      continue;
-    }
-    offsets[id] = Buffer.byteLength(output.join("\n"), "utf8") + 1;
-    output.push(`${id} 0 obj`);
-    output.push(objectBody);
-    output.push("endobj");
-  }
-
-  const xrefOffset = Buffer.byteLength(output.join("\n"), "utf8") + 1;
-  output.push("xref");
-  output.push(`0 ${objects.length}`);
-  output.push("0000000000 65535 f ");
-  for (let id = 1; id < objects.length; id += 1) {
-    const offset = offsets[id] || 0;
-    output.push(`${String(offset).padStart(10, "0")} 00000 n `);
-  }
-  output.push("trailer");
-  output.push(`<< /Size ${objects.length} /Root 1 0 R >>`);
-  output.push("startxref");
-  output.push(String(xrefOffset));
-  output.push("%%EOF");
-
-  return Buffer.from(`${output.join("\n")}\n`, "utf8");
-}
-
-function collectLineItems(proposalData) {
-  const rows = [];
-
-  const addRows = (section, list, mapper) => {
-    if (!Array.isArray(list)) {
-      return;
-    }
-    for (const item of list) {
-      if (!isPlainObject(item)) {
-        continue;
-      }
-      rows.push({ section, ...mapper(item) });
-    }
-  };
-
-  addRows("Deck", proposalData.deckLines, (item) => ({
-    description: safeText(item.type, "Deck Item"),
-    quantity: `${formatNumber(item.sqs)} sqs`,
-    weight: `${formatNumber(item.tons)} tons`,
-  }));
-  addRows("Accessories", proposalData.accessoriesLines, (item) => ({
-    description: safeText(item.type, "Accessory"),
-    quantity: `${formatNumber(item.screwCount, 0)} units`,
-    weight: `${formatNumber(item.tons)} tons`,
-  }));
-  addRows("Joists", proposalData.joistLines, (item) => ({
-    description: safeText(item.description, "Joist Item"),
-    quantity: `${formatNumber(item.units, 0)} units`,
-    weight: `${formatNumber(item.tons)} tons`,
-  }));
-  addRows("Other", proposalData.lines, (item) => ({
-    description: safeText(item.description || item.type, "Line Item"),
-    quantity: safeText(item.quantity ?? item.units ?? item.sqs, "-"),
-    weight: safeText(item.weight ?? item.tons, "-"),
-  }));
-
-  return rows;
-}
-
-function buildProposalLines(proposalData) {
-  const lines = [];
-  const pushWrapped = (text = "") => {
-    for (const wrapped of wrapText(text)) {
-      lines.push(wrapped);
-    }
-  };
-
-  lines.push("TROJAN STEEL PROPOSAL");
-  lines.push("");
-  pushWrapped(`Project: ${safeText(proposalData.projectName)}`);
-  pushWrapped(`Location: ${safeText(proposalData.locationText)}`);
-  pushWrapped(
-    `Quote Ref: ${safeText(proposalData.quoteRef)} | Proposal Date: ${safeText(proposalData.proposalDate)} | Valid Until: ${safeText(proposalData.validUntilDate)}`,
-  );
-  lines.push("");
-  lines.push("PROJECT OVERVIEW");
-  pushWrapped(`Takeoff by Trojan: ${safeText(proposalData.takeoffByTrojan)}`);
-  pushWrapped(`Cut List Provided: ${safeText(proposalData.cutListProvided)}`);
-  pushWrapped(`Specs Reviewed: ${safeText(proposalData.specsReviewed)}`);
-  pushWrapped(`Submittals Lead Time: ${safeText(proposalData.submittalsLeadTime)}`);
-  pushWrapped(`Fabrication Lead Time: ${safeText(proposalData.fabricationLeadTime)}`);
-  lines.push("");
-  lines.push("LINE ITEMS");
-
-  const lineItems = collectLineItems(proposalData);
-  if (!lineItems.length) {
-    lines.push("No line items were provided.");
-  } else {
-    for (const [index, item] of lineItems.entries()) {
-      pushWrapped(`${index + 1}. [${item.section}] ${item.description}`);
-      pushWrapped(`   Qty: ${safeText(item.quantity)} | Weight: ${safeText(item.weight)}`);
-    }
-  }
-
-  lines.push("");
-  lines.push("TOTALS");
-  const totals = isPlainObject(proposalData.totals) ? proposalData.totals : {};
-  pushWrapped(`Total Deck Tons: ${formatNumber(totals.totalDeckTons)}`);
-  pushWrapped(`Total Joist Tons: ${formatNumber(totals.totalJoistTons)}`);
-  pushWrapped(`Grand Total: ${formatMoney(totals.grandTotal)}`);
-  lines.push("");
-  lines.push("CONTACT");
-  pushWrapped(`Phone: ${safeText(proposalData.contactPhone)}`);
-  pushWrapped(`Email: ${safeText(proposalData.contactEmail)}`);
-
-  const conditions = Array.isArray(proposalData.documentConditions) ? proposalData.documentConditions : [];
-  if (conditions.length) {
-    lines.push("");
-    lines.push("CONDITIONS");
-    for (const [index, item] of conditions.entries()) {
-      pushWrapped(`${index + 1}. ${safeText(item)}`);
-    }
-  }
-
-  return lines;
 }
 
 async function readRequestJson(req) {
@@ -263,10 +54,13 @@ async function readRequestJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function buildProposalPdf(proposalData) {
-  const lines = buildProposalLines(proposalData);
-  const pages = chunkArray(lines, LINES_PER_PAGE);
-  return buildSimplePdf(pages.length ? pages : [["TROJAN STEEL PROPOSAL", "", "No proposal data found."]]);
+async function launchBrowser() {
+  const executablePath = await chromium.executablePath();
+  return playwrightChromium.launch({
+    args: chromium.args,
+    executablePath,
+    headless: true,
+  });
 }
 
 module.exports = async function handler(req, res) {
@@ -275,10 +69,10 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed. Use POST with JSON { proposalData: ... }." });
   }
 
+  let browser;
   try {
     const payload = await readRequestJson(req);
     const proposalData = payload && isPlainObject(payload.proposalData) ? payload.proposalData : null;
-
     if (!proposalData) {
       return res.status(400).json({
         error: "Missing proposalData object in request body.",
@@ -286,18 +80,121 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const pdfBuffer = buildProposalPdf(proposalData);
+    const baseUrl = resolveBaseUrl(req);
+    if (!baseUrl) {
+      return res.status(400).json({ error: "Unable to resolve host for proposal rendering." });
+    }
+
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setViewportSize({ width: 1400, height: 1800 });
+
+    await page.addInitScript((data) => {
+      window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
+    }, proposalData);
+
+    const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
+    await page.goto(targetUrl, { waitUntil: "networkidle", timeout: LOAD_TIMEOUT_MS });
+    await page.waitForSelector(".proposal-page", { timeout: LOAD_TIMEOUT_MS });
+
+    await page.evaluate(async () => {
+      if (document.fonts && typeof document.fonts.ready?.then === "function") {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {
+          // Continue if fonts API fails.
+        }
+      }
+      const images = Array.from(document.querySelectorAll("img"));
+      await Promise.all(
+        images.map(
+          (img) =>
+            new Promise((resolve) => {
+              if (img.complete) {
+                resolve();
+                return;
+              }
+              img.addEventListener("load", () => resolve(), { once: true });
+              img.addEventListener("error", () => resolve(), { once: true });
+            }),
+        ),
+      );
+    });
+
+    await page.addStyleTag({
+      content: `
+        @page { size: Letter; margin: 0.5in; }
+        html, body {
+          background: #ffffff !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        .proposal-tools { display: none !important; }
+        .proposal-shell {
+          max-width: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .proposal-root {
+          display: block !important;
+          gap: 0 !important;
+        }
+        .proposal-page {
+          width: auto !important;
+          min-height: 0 !important;
+          height: auto !important;
+          margin: 0 !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          overflow: visible !important;
+          break-inside: avoid-page;
+          page-break-inside: avoid;
+        }
+        .proposal-page.page-break {
+          break-after: page;
+          page-break-after: always;
+        }
+        .proposal-page:last-child {
+          break-after: auto !important;
+          page-break-after: auto !important;
+        }
+      `,
+    });
+
+    const pdfBuffer = await page.pdf({
+      format: "Letter",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: {
+        top: "0.5in",
+        right: "0.5in",
+        bottom: "0.5in",
+        left: "0.5in",
+      },
+    });
+
+    await page.close();
+
+    const filename = `${sanitizeFilenamePart(proposalData.projectName, "proposal")}-${sanitizeFilenamePart(
+      proposalData.quoteRef,
+      "quote",
+    )}.pdf`;
     res.status(200);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="proposal.pdf"');
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Cache-Control", "no-store");
-    return res.send(pdfBuffer);
+    return res.send(Buffer.from(pdfBuffer));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const status = /json|request body/i.test(message) ? 400 : 500;
+    const status = /json|request body|missing/i.test(message) ? 400 : 500;
     return res.status(status).json({
       error: message,
       hint: 'POST JSON body like: { "proposalData": { ... } }',
     });
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 };

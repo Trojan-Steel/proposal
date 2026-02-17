@@ -635,53 +635,12 @@
     fitTermsPagesToBounds();
   }
 
-  async function waitForDocumentFonts() {
-    if (document.fonts && typeof document.fonts.ready?.then === "function") {
-      try {
-        await document.fonts.ready;
-      } catch (_error) {
-        // Continue if font readiness check fails on some browsers.
-      }
-    }
-  }
-
-  function waitForNextPaint() {
-    return new Promise((resolve) => {
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(resolve);
-      });
-    });
-  }
-
   async function downloadPdfOneClick() {
     const data = loadProposalData();
     if (!data) {
       window.alert("NO PROPOSAL DATA FOUND. RETURN TO THE CALCULATOR AND TRY AGAIN.");
       return;
     }
-    if (typeof window.html2pdf !== "function") {
-      window.alert("PDF EXPORT LIBRARY FAILED TO LOAD. PLEASE RELOAD THE PAGE AND TRY AGAIN.");
-      return;
-    }
-
-    try {
-      await preloadLogoDataUrl();
-    } catch (_error) {
-      window.alert("LOGO FILE IS REQUIRED AT data/templates/trojan-logo.png FOR PDF EXPORT.");
-      return;
-    }
-    const logoImage = proposalRoot.querySelector(".proposal-header img");
-    if (logoImage) {
-      logoImage.setAttribute("src", logoDataUrl);
-    }
-    const allImagesReady = await waitForImages(proposalRoot);
-    if (!allImagesReady) {
-      window.alert("LOGO FAILED TO LOAD FOR PDF EXPORT. PLEASE RELOAD THE PROPOSAL PAGE AND TRY AGAIN.");
-      return;
-    }
-    await waitForDocumentFonts();
-    fitFirstPageToSinglePage();
-    fitTermsPagesToBounds();
 
     const originalLabel = downloadButton?.textContent || "Download PDF";
     if (downloadButton) {
@@ -689,26 +648,52 @@
       downloadButton.textContent = "Generating PDF...";
     }
     try {
-      document.body.classList.add("exporting");
-      await waitForNextPaint();
+      const healthUrl = "/api/proposal-health";
+      const proposalApiUrl = "/api/proposal-render";
+      const healthFallbackUrl = "/proposal-api/health";
+      const proposalFallbackUrl = "/proposal-api/render";
+      const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
+        const response = await fetch(primaryUrl, options);
+        if (canUseLocalFallback && response.status === 404) {
+          return fetch(fallbackUrl, options);
+        }
+        return response;
+      };
+      const healthResponse = await fetchWithLocalFallback(healthUrl, healthFallbackUrl);
+      if (!healthResponse.ok) {
+        const text = (await healthResponse.text()).slice(0, 200);
+        throw new Error(`Health check failed at ${healthUrl} | status ${healthResponse.status} | body: ${text}`);
+      }
+      const healthJson = await healthResponse.json().catch(() => null);
+      if (!healthJson || healthJson.ok !== true) {
+        throw new Error(`Health endpoint returned unexpected payload at ${healthUrl}`);
+      }
+      const response = await fetchWithLocalFallback(proposalApiUrl, proposalFallbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposalData: data }),
+      });
+      if (!response.ok) {
+        const text = (await response.text()).slice(0, 200);
+        throw new Error(`PDF server error at ${proposalApiUrl} | status ${response.status} | body: ${text}`);
+      }
+      const blob = await response.blob();
       const filename = buildPdfFilename(data);
-      await window
-        .html2pdf()
-        .set({
-          margin: [0.25, 0.25, 0.25, 0.25],
-          filename,
-          image: { type: "jpeg", quality: 0.88 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-          jsPDF: { unit: "in", format: "letter", orientation: "portrait", compress: true },
-          pagebreak: { mode: ["css", "legacy"] },
-        })
-        .from(proposalRoot)
-        .save();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
-      window.alert(`PDF GENERATION FAILED.\nError: ${message}`);
+      window.alert(
+        `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/render are used if /api/* is unavailable.`,
+      );
     } finally {
-      document.body.classList.remove("exporting");
       if (downloadButton) {
         downloadButton.disabled = false;
         downloadButton.textContent = originalLabel;
