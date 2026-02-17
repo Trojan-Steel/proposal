@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="/assets/index-DhKJvT9i.js"></script>
+    <script type="module" crossorigin src="/assets/index-CgnSYy4X.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-D7HQQWjW.css">
   </head>
   <body>
@@ -342,7 +342,11 @@
           <div class="admin-controls-row">
             <button id="adminSuppliersButton" type="button" class="btn-secondary">SUPPLIERS</button>
             <button id="adminChangelogButton" type="button" class="btn-secondary">CHANGELOG</button>
+            <button id="adminExportSettingsButton" type="button" class="btn-secondary">EXPORT SETTINGS</button>
+            <button id="adminImportSettingsButton" type="button" class="btn-secondary">IMPORT SETTINGS</button>
           </div>
+          <input id="adminImportSettingsInput" type="file" accept="application/json,.json" class="hidden" />
+          <p id="adminStatusText" class="help-text"></p>
 
           <div id="adminSectionsList" class="admin-sections-list"></div>
 

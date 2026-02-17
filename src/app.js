@@ -1,4 +1,5 @@
 import "./weights.js";
+import { supabase } from "./supabaseClient.js";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py
@@ -33,6 +34,23 @@ const PROPOSAL_QUOTE_LOG_STORAGE_KEY = "trojan_proposal_quote_log_v1";
 const PROPOSAL_QUOTE_PREFIX = "TROJ26";
 const PROPOSAL_QUOTE_START = 274;
 const GOOGLE_MAPS_API_GLOBAL_KEY = "GOOGLE_MAPS_API_KEY";
+const SUPABASE_APP_SETTINGS_TABLE = "app_settings";
+const SUPABASE_APP_SETTINGS_ID = "default";
+const SHARED_SETTINGS_KEYS = {
+  trojanPricing: "trojan_pricing_v1",
+  cscPricing: "csc_pricing_v1",
+  canoPricing: "cano_pricing_v1",
+  trojanLeadTimes: "trojan_lead_times_v1",
+  cscLeadTimes: "csc_lead_times_v1",
+  canoLeadTimes: "cano_lead_times_v1",
+};
+const ADMIN_LOCAL_EXPORT_KEYS = [
+  ADMIN_PRICING_STORAGE_KEY,
+  ADMIN_CHANGELOG_STORAGE_KEY,
+  ADMIN_TROJAN_MIN_PROJECT_MARGIN_STORAGE_KEY,
+  ADMIN_DETAILING_BUCKETS_STORAGE_KEY,
+  ...Object.values(SHARED_SETTINGS_KEYS),
+];
 
 const ADMIN_SECTION_CONFIG = {
   trojan: {
@@ -640,6 +658,10 @@ const adminBackButton = document.getElementById("adminBackButton");
 const adminCloseButton = document.getElementById("adminCloseButton");
 const adminSuppliersButton = document.getElementById("adminSuppliersButton");
 const adminChangelogButton = document.getElementById("adminChangelogButton");
+const adminExportSettingsButton = document.getElementById("adminExportSettingsButton");
+const adminImportSettingsButton = document.getElementById("adminImportSettingsButton");
+const adminImportSettingsInput = document.getElementById("adminImportSettingsInput");
+const adminStatusText = document.getElementById("adminStatusText");
 const adminSectionsList = document.getElementById("adminSectionsList");
 const adminChangelogDialog = document.getElementById("adminChangelogDialog");
 const adminChangelogList = document.getElementById("adminChangelogList");
@@ -797,6 +819,7 @@ let milesCalcDebounceTimer = null;
 let lastMilesRouteKey = "";
 let lastMilesRequestToken = 0;
 let pricingOptimizationTimer = null;
+let adminStatusTimer = null;
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-US", {
@@ -959,7 +982,162 @@ function formatAdminTimestamp(timestamp) {
   }).format(date);
 }
 
-function saveAdminState() {
+function setAdminStatus(message, options = {}) {
+  if (!adminStatusText) {
+    return;
+  }
+  const { isError = false, clearAfterMs = 2500 } = options;
+  adminStatusText.textContent = message || "";
+  adminStatusText.style.color = isError ? "#b91c1c" : "";
+  if (adminStatusTimer) {
+    window.clearTimeout(adminStatusTimer);
+    adminStatusTimer = null;
+  }
+  if (message && clearAfterMs > 0) {
+    adminStatusTimer = window.setTimeout(() => {
+      if (adminStatusText.textContent === message) {
+        adminStatusText.textContent = "";
+        adminStatusText.style.color = "";
+      }
+      adminStatusTimer = null;
+    }, clearAfterMs);
+  }
+}
+
+function parseStoredJsonObject(storageKey) {
+  const raw = localStorage.getItem(storageKey);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function readSupplierRowsFromStorage() {
+  const stored = localStorage.getItem(SUPPLIERS_STORAGE_KEY);
+  if (!stored) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function buildAdminLocalStorageSnapshot() {
+  const snapshot = {};
+  ADMIN_LOCAL_EXPORT_KEYS.forEach((key) => {
+    const value = localStorage.getItem(key);
+    if (value !== null) {
+      snapshot[key] = value;
+    }
+  });
+  return snapshot;
+}
+
+function buildSettingsExportPayload() {
+  return {
+    sharedSettingsBlob: buildSharedSettingsBlobFromState(),
+    suppliers: state.suppliers.isLoaded ? state.suppliers.rows : readSupplierRowsFromStorage(),
+    adminLocalStorage: buildAdminLocalStorageSnapshot(),
+  };
+}
+
+function downloadSettingsExportFile() {
+  const payload = buildSettingsExportPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  link.href = objectUrl;
+  link.download = `trojan-settings-${dateStamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function importSuppliersRows(rows) {
+  if (!Array.isArray(rows)) {
+    return false;
+  }
+  const columns = deriveSupplierColumns(rows);
+  const normalizedRows = normalizeSupplierRows(rows, columns);
+  state.suppliers.columns = columns;
+  state.suppliers.rows = normalizedRows;
+  state.suppliers.draftRows = normalizedRows.map((row) => ({ ...row }));
+  state.suppliers.nameColumnKey = findSupplierNameColumn(columns);
+  state.suppliers.isLoaded = true;
+  state.suppliers.isLoading = false;
+  state.suppliers.isEditing = false;
+  state.suppliers.loadError = "";
+  localStorage.setItem(SUPPLIERS_STORAGE_KEY, JSON.stringify(normalizedRows));
+  return true;
+}
+
+async function handleSettingsImportFile(file) {
+  const text = await file.text();
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Invalid JSON structure.");
+  }
+  const sharedSettingsBlob = parsed.sharedSettingsBlob;
+  if (!sharedSettingsBlob || typeof sharedSettingsBlob !== "object") {
+    throw new Error("Missing sharedSettingsBlob.");
+  }
+
+  const adminLocalStorage = parsed.adminLocalStorage;
+  if (adminLocalStorage && typeof adminLocalStorage === "object") {
+    Object.entries(adminLocalStorage).forEach(([key, value]) => {
+      if (typeof value === "string") {
+        localStorage.setItem(key, value);
+      } else if (value !== null && value !== undefined) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+    });
+  }
+
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.trojanPricing,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.trojanPricing] || {}),
+  );
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.cscPricing,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.cscPricing] || {}),
+  );
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.canoPricing,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.canoPricing] || {}),
+  );
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.trojanLeadTimes,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}),
+  );
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.cscLeadTimes,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}),
+  );
+  localStorage.setItem(
+    SHARED_SETTINGS_KEYS.canoLeadTimes,
+    JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}),
+  );
+
+  importSuppliersRows(parsed.suppliers);
+  loadAdminState();
+  renderAdminSections();
+  if (state.currentPage === "suppliers") {
+    renderSuppliersPage();
+  }
+  updateCalculator();
+  await syncSharedSettingsToSupabase(sharedSettingsBlob);
+}
+
+function buildAdminPricingPayloadFromState() {
   const payload = {};
   Object.keys(ADMIN_SECTION_CONFIG).forEach((sectionKey) => {
     payload[sectionKey] = {};
@@ -982,6 +1160,10 @@ function saveAdminState() {
     csc: state.admin.sections.csc.values.leadTimes,
     cano: state.admin.sections.cano.values.leadTimes,
   });
+  return payload;
+}
+
+function writeAdminStateToLocalStorage(payload) {
   localStorage.setItem(ADMIN_PRICING_STORAGE_KEY, JSON.stringify(payload));
   localStorage.setItem(
     ADMIN_TROJAN_MIN_PROJECT_MARGIN_STORAGE_KEY,
@@ -994,6 +1176,167 @@ function saveAdminState() {
   localStorage.setItem(ADMIN_CHANGELOG_STORAGE_KEY, JSON.stringify(state.admin.changelog));
 }
 
+function buildSharedSettingsBlobFromState() {
+  return {
+    [SHARED_SETTINGS_KEYS.trojanPricing]: {
+      coilCostPerLb: parseCurrency(state.admin.sections.trojan.values.coilCostPerLb),
+      inboundFreightPerLb: parseCurrency(state.admin.sections.trojan.values.inboundFreightPerLb),
+      laborPerLb: parseCurrency(state.admin.sections.trojan.values.laborPerLb),
+      outboundFreightPerMi: parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi),
+      accessoriesCostPerScrew: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerScrew),
+      accessoriesCostPerTon: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerTon),
+      minimumProjectMargin: parseCurrency(state.admin.sections.trojan.values.minimumProjectMargin),
+    },
+    [SHARED_SETTINGS_KEYS.cscPricing]: normalizeCscValues(state.admin.sections.csc.values),
+    [SHARED_SETTINGS_KEYS.canoPricing]: normalizeCanoValues(state.admin.sections.cano.values),
+    [SHARED_SETTINGS_KEYS.trojanLeadTimes]: normalizeLeadTimesValues({
+      trojan: state.admin.sections.trojan.values.leadTimes,
+    }).trojan,
+    [SHARED_SETTINGS_KEYS.cscLeadTimes]: normalizeLeadTimesValues({
+      csc: state.admin.sections.csc.values.leadTimes,
+    }).csc,
+    [SHARED_SETTINGS_KEYS.canoLeadTimes]: normalizeLeadTimesValues({
+      cano: state.admin.sections.cano.values.leadTimes,
+    }).cano,
+  };
+}
+
+function applySharedSettingsBlobToState(blob) {
+  if (!blob || typeof blob !== "object") {
+    return false;
+  }
+  const trojanPricing = blob[SHARED_SETTINGS_KEYS.trojanPricing];
+  const cscPricing = blob[SHARED_SETTINGS_KEYS.cscPricing];
+  const canoPricing = blob[SHARED_SETTINGS_KEYS.canoPricing];
+  const trojanLeadTimes = blob[SHARED_SETTINGS_KEYS.trojanLeadTimes];
+  const cscLeadTimes = blob[SHARED_SETTINGS_KEYS.cscLeadTimes];
+  const canoLeadTimes = blob[SHARED_SETTINGS_KEYS.canoLeadTimes];
+
+  if (
+    !trojanPricing &&
+    !cscPricing &&
+    !canoPricing &&
+    !trojanLeadTimes &&
+    !cscLeadTimes &&
+    !canoLeadTimes
+  ) {
+    return false;
+  }
+
+  if (trojanPricing && typeof trojanPricing === "object") {
+    const trojan = state.admin.sections.trojan.values;
+    trojan.coilCostPerLb = parseCurrency(trojanPricing.coilCostPerLb);
+    trojan.inboundFreightPerLb = parseCurrency(trojanPricing.inboundFreightPerLb);
+    trojan.laborPerLb = parseCurrency(trojanPricing.laborPerLb);
+    trojan.outboundFreightPerMi = parseCurrency(trojanPricing.outboundFreightPerMi);
+    trojan.accessoriesCostPerScrew = parseCurrency(trojanPricing.accessoriesCostPerScrew);
+    trojan.accessoriesCostPerTon = parseCurrency(trojanPricing.accessoriesCostPerTon);
+    trojan.minimumProjectMargin = parseCurrency(trojanPricing.minimumProjectMargin);
+  }
+  if (cscPricing && typeof cscPricing === "object") {
+    state.admin.sections.csc.values = normalizeCscValues(cscPricing);
+  }
+  if (canoPricing && typeof canoPricing === "object") {
+    state.admin.sections.cano.values = normalizeCanoValues(canoPricing);
+  }
+  const leadTimes = normalizeLeadTimesValues({
+    trojan: trojanLeadTimes,
+    csc: cscLeadTimes,
+    cano: canoLeadTimes,
+  });
+  state.admin.sections.trojan.values.leadTimes = leadTimes.trojan;
+  state.admin.sections.csc.values.leadTimes = leadTimes.csc;
+  state.admin.sections.cano.values.leadTimes = leadTimes.cano;
+  return true;
+}
+
+function applyAdminPricingPayloadToState(parsed) {
+  if (!parsed || typeof parsed !== "object") {
+    return;
+  }
+  Object.keys(ADMIN_SECTION_CONFIG).forEach((sectionKey) => {
+    const fields = ADMIN_SECTION_CONFIG[sectionKey].fields;
+    const sourceValues = parsed?.[sectionKey];
+    if (!sourceValues || typeof sourceValues !== "object") {
+      return;
+    }
+    fields.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(sourceValues, field.key)) {
+        if (field.type === "text") {
+          state.admin.sections[sectionKey].values[field.key] = String(sourceValues[field.key] || "").trim();
+        } else {
+          state.admin.sections[sectionKey].values[field.key] = parseCurrency(sourceValues[field.key]);
+        }
+      }
+    });
+  });
+  state.admin.sections.csc.values = normalizeCscValues(parsed?.csc);
+  state.admin.sections.cano.values = normalizeCanoValues(parsed?.cano);
+  state.admin.sections.detailing.values = normalizeDetailingValues(parsed?.detailing);
+  state.admin.sections.trojan.values.documentConditions = normalizeTrojanDocumentConditions(parsed?.trojan?.documentConditions);
+  const leadTimes = normalizeLeadTimesValues(parsed?.leadTimes);
+  state.admin.sections.trojan.values.leadTimes = leadTimes.trojan;
+  state.admin.sections.csc.values.leadTimes = leadTimes.csc;
+  state.admin.sections.cano.values.leadTimes = leadTimes.cano;
+}
+
+async function syncSharedSettingsToSupabase(settingsBlob = null) {
+  if (!supabase) {
+    return;
+  }
+  const payload = settingsBlob && typeof settingsBlob === "object" ? settingsBlob : buildSharedSettingsBlobFromState();
+  const { error } = await supabase
+    .from(SUPABASE_APP_SETTINGS_TABLE)
+  .upsert({ id: SUPABASE_APP_SETTINGS_ID, data: payload }, { onConflict: "id" });
+
+  if (error) {
+    setAdminStatus("Save failed", { isError: true });
+    return;
+  }
+  setAdminStatus("Saved for all users");
+}
+
+async function loadRemoteSharedSettings() {
+  if (!supabase) {
+    return false;
+  }
+  const { data, error } = await supabase
+    .from(SUPABASE_APP_SETTINGS_TABLE)
+    .select("data")
+    .eq("id", SUPABASE_APP_SETTINGS_ID)
+    .single();
+  if (error || !data || typeof data.data !== "object" || !data.data) {
+    return false;
+  }
+  const blob = data.data?.sharedSettingsBlob && typeof data.data.sharedSettingsBlob === "object" ? data.data.sharedSettingsBlob : data.data;
+const applied = applySharedSettingsBlobToState(blob);
+
+  if (applied) {
+    localStorage.setItem("trojan_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.trojanPricing] || {}));
+    localStorage.setItem("csc_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.cscPricing] || {}));
+    localStorage.setItem("cano_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.canoPricing] || {}));
+    localStorage.setItem("trojan_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}));
+    localStorage.setItem("csc_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}));
+    localStorage.setItem("cano_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}));
+    const payload = buildAdminPricingPayloadFromState();
+    writeAdminStateToLocalStorage(payload);
+  }
+  return applied;
+}
+
+function saveAdminState() {
+  const payload = buildAdminPricingPayloadFromState();
+  writeAdminStateToLocalStorage(payload);
+  const sharedSettingsBlob = buildSharedSettingsBlobFromState();
+  localStorage.setItem("trojan_pricing_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.trojanPricing] || {}));
+  localStorage.setItem("csc_pricing_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.cscPricing] || {}));
+  localStorage.setItem("cano_pricing_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.canoPricing] || {}));
+  localStorage.setItem("trojan_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}));
+  localStorage.setItem("csc_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}));
+  localStorage.setItem("cano_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}));
+  void syncSharedSettingsToSupabase(sharedSettingsBlob);
+}
+
 function loadAdminState() {
   state.admin = createDefaultAdminState();
 
@@ -1001,36 +1344,20 @@ function loadAdminState() {
   if (pricingRaw) {
     try {
       const parsed = JSON.parse(pricingRaw);
-      Object.keys(ADMIN_SECTION_CONFIG).forEach((sectionKey) => {
-        const fields = ADMIN_SECTION_CONFIG[sectionKey].fields;
-        const sourceValues = parsed?.[sectionKey];
-        if (!sourceValues || typeof sourceValues !== "object") {
-          return;
-        }
-        fields.forEach((field) => {
-          if (Object.prototype.hasOwnProperty.call(sourceValues, field.key)) {
-            if (field.type === "text") {
-              state.admin.sections[sectionKey].values[field.key] = String(sourceValues[field.key] || "").trim();
-            } else {
-              state.admin.sections[sectionKey].values[field.key] = parseCurrency(sourceValues[field.key]);
-            }
-          }
-        });
-      });
-      state.admin.sections.csc.values = normalizeCscValues(parsed?.csc);
-      state.admin.sections.cano.values = normalizeCanoValues(parsed?.cano);
-      state.admin.sections.detailing.values = normalizeDetailingValues(parsed?.detailing);
-      state.admin.sections.trojan.values.documentConditions = normalizeTrojanDocumentConditions(
-        parsed?.trojan?.documentConditions,
-      );
-      const leadTimes = normalizeLeadTimesValues(parsed?.leadTimes);
-      state.admin.sections.trojan.values.leadTimes = leadTimes.trojan;
-      state.admin.sections.csc.values.leadTimes = leadTimes.csc;
-      state.admin.sections.cano.values.leadTimes = leadTimes.cano;
+      applyAdminPricingPayloadToState(parsed);
     } catch (_error) {
       // Ignore malformed local storage payload and keep defaults.
     }
   }
+  const sharedSettingsBlob = {
+    [SHARED_SETTINGS_KEYS.trojanPricing]: parseStoredJsonObject("trojan_pricing_v1"),
+    [SHARED_SETTINGS_KEYS.cscPricing]: parseStoredJsonObject("csc_pricing_v1"),
+    [SHARED_SETTINGS_KEYS.canoPricing]: parseStoredJsonObject("cano_pricing_v1"),
+    [SHARED_SETTINGS_KEYS.trojanLeadTimes]: parseStoredJsonObject("trojan_lead_times_v1"),
+    [SHARED_SETTINGS_KEYS.cscLeadTimes]: parseStoredJsonObject("csc_lead_times_v1"),
+    [SHARED_SETTINGS_KEYS.canoLeadTimes]: parseStoredJsonObject("cano_lead_times_v1"),
+  };
+  applySharedSettingsBlobToState(sharedSettingsBlob);
 
   const detailingRowsRaw = localStorage.getItem(ADMIN_DETAILING_BUCKETS_STORAGE_KEY);
   if (detailingRowsRaw) {
@@ -8702,6 +9029,39 @@ adminChangelogButton.addEventListener("click", () => {
   renderAdminChangelog();
   adminChangelogDialog.showModal();
 });
+adminExportSettingsButton?.addEventListener("click", () => {
+  try {
+    downloadSettingsExportFile();
+    setAdminStatus("Settings exported");
+  } catch (_error) {
+    setAdminStatus("Export failed", { isError: true });
+  }
+});
+adminImportSettingsButton?.addEventListener("click", () => {
+  if (!adminImportSettingsInput) {
+    return;
+  }
+  adminImportSettingsInput.value = "";
+  adminImportSettingsInput.click();
+});
+adminImportSettingsInput?.addEventListener("change", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !target.files || target.files.length === 0) {
+    return;
+  }
+  const [file] = target.files;
+  if (!file) {
+    return;
+  }
+  try {
+    await handleSettingsImportFile(file);
+    setAdminStatus("Settings imported");
+  } catch (_error) {
+    setAdminStatus("Import failed", { isError: true });
+  } finally {
+    target.value = "";
+  }
+});
 adminChangelogCloseButton.addEventListener("click", () => adminChangelogDialog.close());
 suppliersBackButton?.addEventListener("click", () => setPage("admin"));
 suppliersEditButton?.addEventListener("click", () => {
@@ -9320,7 +9680,7 @@ pagePricing.addEventListener("change", (event) => {
   renderPricingSections();
 });
 
-function init() {
+async function init() {
   loadCalculatorDraftState();
   if (submittalsLeadTimeInput) {
     submittalsLeadTimeInput.readOnly = true;
@@ -9367,6 +9727,11 @@ function init() {
     takeoffProjectLocationInput.value = state.takeoff.projectLocation || "";
   }
   loadAdminState();
+  try {
+    await loadRemoteSharedSettings();
+  } catch (_error) {
+    // Fall back to local storage settings when Supabase read fails.
+  }
 
   updateProjectHeader();
   updateWizardButtons();
@@ -9386,8 +9751,8 @@ if (typeof window !== "undefined") {
   window.runVendorStrategyHarness = runVendorStrategyHarness;
 }
 
-init();
-
-ensureSuppliersLoaded().then(() => {
-  updateCalculator();
+init().then(() => {
+  ensureSuppliersLoaded().then(() => {
+    updateCalculator();
+  });
 });

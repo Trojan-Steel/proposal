@@ -1,0 +1,217 @@
+{
+  "sharedSettingsBlob": {
+    "trojan_pricing_v1": {
+      "coilCostPerLb": 0.65,
+      "inboundFreightPerLb": 2.5,
+      "laborPerLb": 0,
+      "outboundFreightPerMi": 0,
+      "accessoriesCostPerScrew": 0,
+      "accessoriesCostPerTon": 0,
+      "minimumProjectMargin": 4000
+    },
+    "csc_pricing_v1": {
+      "joists": {
+        "buckets": [
+          {
+            "start": 0,
+            "end": 9,
+            "cost": 6000
+          },
+          {
+            "start": 10,
+            "end": 24,
+            "cost": 4500
+          },
+          {
+            "start": 25,
+            "end": 49,
+            "cost": 4000
+          },
+          {
+            "start": 50,
+            "end": 99,
+            "cost": 3500
+          },
+          {
+            "start": 100,
+            "end": 1000,
+            "cost": 3000
+          }
+        ],
+        "extraShippingFee_0_9": 3500
+      },
+      "deck": {
+        "buckets": [
+          {
+            "start": 0,
+            "end": 9,
+            "cost": 6000
+          },
+          {
+            "start": 10,
+            "end": 24,
+            "cost": 4000
+          },
+          {
+            "start": 25,
+            "end": 49,
+            "cost": 3500
+          },
+          {
+            "start": 50,
+            "end": 99,
+            "cost": 2500
+          },
+          {
+            "start": 100,
+            "end": 1000,
+            "cost": 2100
+          }
+        ]
+      },
+      "leadTimes": {
+        "fabrication": {
+          "min": "",
+          "max": ""
+        }
+      }
+    },
+    "cano_pricing_v1": {
+      "perLb": 0,
+      "leadTimes": {
+        "fabrication": {
+          "min": "",
+          "max": ""
+        }
+      }
+    },
+    "trojan_lead_times_v1": {
+      "submittalsDeckOnly": {
+        "min": "",
+        "max": ""
+      },
+      "submittalsJoistsUnder50": {
+        "min": "",
+        "max": ""
+      },
+      "submittalsDeckAndJoistsOver50": {
+        "min": "",
+        "max": ""
+      },
+      "fabrication": {
+        "min": "",
+        "max": ""
+      }
+    },
+    "csc_lead_times_v1": {
+      "fabrication": {
+        "min": "",
+        "max": ""
+      }
+    },
+    "cano_lead_times_v1": {
+      "fabrication": {
+        "min": "",
+        "max": ""
+      }
+    }
+  },
+  "suppliers": [
+    {
+      "SUPPLIER": "TROJAN",
+      "DECK": "TRUE",
+      "DEPTH": "1.5, 2.0",
+      "JOISTS": "FALSE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "FALSE",
+      "PRIORITY": "1",
+      "JOIST LOCATION": "FALSE",
+      "DECK LOCATION": "TX"
+    },
+    {
+      "SUPPLIER": "CANO",
+      "DECK": "TRUE",
+      "DEPTH": "0.6, 1.0, 1.5, 2.0, 3.0",
+      "JOISTS": "TRUE",
+      "AMERICAN STEEL REQUIRED": "FALSE",
+      "AMERICAN MANUFACTURING": "FALSE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "2",
+      "JOIST LOCATION": "MEXICO",
+      "DECK LOCATION": "MEXICO"
+    },
+    {
+      "SUPPLIER": "CSC",
+      "DECK": "TRUE",
+      "DEPTH": "0.6, 1.0, 1.3, 1.5, 2.0, 3.0, 3.5, 4.0",
+      "JOISTS": "TRUE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "3",
+      "JOIST LOCATION": "MO",
+      "DECK LOCATION": "FL"
+    },
+    {
+      "SUPPLIER": "CUTTING EDGE",
+      "DECK": "TRUE",
+      "DEPTH": "1.5, 2.0, 3.0",
+      "JOISTS": "FALSE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "4",
+      "JOIST LOCATION": "FALSE",
+      "DECK LOCATION": "TX"
+    },
+    {
+      "SUPPLIER": "CORDECK",
+      "DECK": "TRUE",
+      "DEPTH": "0.6, 1.5, 2.0, 3.0",
+      "JOISTS": "FALSE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "5",
+      "JOIST LOCATION": "FALSE",
+      "DECK LOCATION": "TX"
+    },
+    {
+      "SUPPLIER": "CSM",
+      "DECK": "TRUE",
+      "DEPTH": "0.6, 1.0, 1.5, 2.0, 3.0",
+      "JOISTS": "FALSE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "6",
+      "JOIST LOCATION": "FALSE",
+      "DECK LOCATION": "TX"
+    },
+    {
+      "SUPPLIER": "HOUSTONBDECK",
+      "DECK": "TRUE",
+      "DEPTH": "1.5, 2.0, 3.0",
+      "JOISTS": "FALSE",
+      "AMERICAN STEEL REQUIRED": "TRUE",
+      "AMERICAN MANUFACTURING": "TRUE",
+      "SDI MANUFACTURING": "TRUE",
+      "PRIORITY": "7",
+      "JOIST LOCATION": "FALSE",
+      "DECK LOCATION": "TX"
+    }
+  ],
+  "adminLocalStorage": {
+    "trojan_admin_pricing_v1": "{\"trojan\":{\"coilCostPerLb\":0.65,\"inboundFreightPerLb\":2.5,\"laborPerLb\":0,\"outboundFreightPerMi\":0,\"facilityAddress\":\"\",\"accessoriesCostPerScrew\":0,\"accessoriesCostPerTon\":0,\"minimumProjectMargin\":4000,\"documentConditions\":[]},\"csc\":{\"joists\":{\"buckets\":[{\"start\":0,\"end\":9,\"cost\":6000},{\"start\":10,\"end\":24,\"cost\":4500},{\"start\":25,\"end\":49,\"cost\":4000},{\"start\":50,\"end\":99,\"cost\":3500},{\"start\":100,\"end\":1000,\"cost\":3000}],\"extraShippingFee_0_9\":3500},\"deck\":{\"buckets\":[{\"start\":0,\"end\":9,\"cost\":6000},{\"start\":10,\"end\":24,\"cost\":4000},{\"start\":25,\"end\":49,\"cost\":3500},{\"start\":50,\"end\":99,\"cost\":2500},{\"start\":100,\"end\":1000,\"cost\":2100}]},\"leadTimes\":{\"fabrication\":{\"min\":\"\",\"max\":\"\"}}},\"cano\":{\"perLb\":0,\"leadTimes\":{\"fabrication\":{\"min\":\"\",\"max\":\"\"}}},\"detailing\":{\"minimumFee\":500,\"buckets\":[{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.75},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.25},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":4},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.25},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.5},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.25},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4.5},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":3.75},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":5}]},\"leadTimes\":{\"trojan\":{\"submittalsDeckOnly\":{\"min\":\"\",\"max\":\"\"},\"submittalsJoistsUnder50\":{\"min\":\"\",\"max\":\"\"},\"submittalsDeckAndJoistsOver50\":{\"min\":\"\",\"max\":\"\"},\"fabrication\":{\"min\":\"\",\"max\":\"\"}},\"csc\":{\"fabrication\":{\"min\":\"\",\"max\":\"\"}},\"cano\":{\"fabrication\":{\"min\":\"\",\"max\":\"\"}}}}",
+    "trojan_admin_changelog_v1": "[]",
+    "admin_trojan_min_project_margin_v1": "4000",
+    "admin_detailing_buckets_v1": "[{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":1,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":4.75},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":2,\"detailingPercent\":5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4},{\"start\":10,\"end\":24,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":25,\"end\":49,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":50,\"end\":99,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":100,\"end\":299,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK+JOISTS\",\"tier\":3,\"detailingPercent\":5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.25},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":4},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.25},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.5},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":0,\"end\":9,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"DECK_ONLY\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.25},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.5},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":3.75},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4.25},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":1,\"detailingPercent\":4.5},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":3.5},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":3.75},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.25},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.5},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":2,\"detailingPercent\":4.75},{\"start\":0,\"end\":9,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":3.75},{\"start\":10,\"end\":24,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4},{\"start\":25,\"end\":49,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.25},{\"start\":50,\"end\":99,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.5},{\"start\":100,\"end\":299,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":4.75},{\"start\":300,\"end\":1000,\"scopeType\":\"JOIST_ONLY\",\"tier\":3,\"detailingPercent\":5}]",
+    "trojan_pricing_v1": "{\"laborPerLb\":0,\"coilCostPerLb\":0.65,\"inboundFreightPerLb\":2.5,\"minimumProjectMargin\":4000,\"outboundFreightPerMi\":0,\"accessoriesCostPerTon\":0,\"accessoriesCostPerScrew\":0}",
+    "csc_pricing_v1": "{\"deck\":{\"buckets\":[{\"end\":9,\"cost\":6000,\"start\":0},{\"end\":24,\"cost\":4000,\"start\":10},{\"end\":49,\"cost\":3500,\"start\":25},{\"end\":99,\"cost\":2500,\"start\":50},{\"end\":1000,\"cost\":2100,\"start\":100}]},\"joists\":{\"buckets\":[{\"end\":9,\"cost\":6000,\"start\":0},{\"end\":24,\"cost\":4500,\"start\":10},{\"end\":49,\"cost\":4000,\"start\":25},{\"end\":99,\"cost\":3500,\"start\":50},{\"end\":1000,\"cost\":3000,\"start\":100}],\"extraShippingFee_0_9\":3500},\"leadTimes\":{\"fabrication\":{\"max\":\"\",\"min\":\"\"}}}",
+    "cano_pricing_v1": "{\"perLb\":0,\"leadTimes\":{\"fabrication\":{\"max\":\"\",\"min\":\"\"}}}",
+    "trojan_lead_times_v1": "{\"fabrication\":{\"max\":\"\",\"min\":\"\"},\"submittalsDeckOnly\":{\"max\":\"\",\"min\":\"\"},\"submittalsJoistsUnder50\":{\"max\":\"\",\"min\":\"\"},\"submittalsDeckAndJoistsOver50\":{\"max\":\"\",\"min\":\"\"}}",
+    "csc_lead_times_v1": "{\"fabrication\":{\"max\":\"\",\"min\":\"\"}}",
+    "cano_lead_times_v1": "{\"fabrication\":{\"max\":\"\",\"min\":\"\"}}"
+  }
+}
