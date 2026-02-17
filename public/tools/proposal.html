@@ -14,7 +14,7 @@
   </head>
   <body>
     <main class="proposal-shell">
-      <header class="proposal-tools">
+      <header class="proposal-tools no-print">
         <button id="backToCalculatorButton" type="button">Back</button>
         <button id="downloadProposalPdfButton" type="button">Download PDF</button>
       </header>
@@ -22,6 +22,7 @@
       <div id="proposalRoot" class="proposal-root" aria-live="polite"></div>
     </main>
 
-    <script src="proposal.js?v=20"></script>
+    <script src="/tools/vendor/html2pdf.bundle.min.js"></script>
+    <script src="proposal.js?v=21"></script>
   </body>
 </html>

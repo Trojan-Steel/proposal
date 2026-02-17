@@ -19,6 +19,10 @@ body {
   text-transform: uppercase;
 }
 
+body.exporting .no-print {
+  display: none !important;
+}
+
 .proposal-shell {
   max-width: 8.5in;
   margin: 20px auto 40px;
