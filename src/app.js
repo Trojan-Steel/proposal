@@ -2163,6 +2163,84 @@ function getRuleValue(row, aliases) {
   return undefined;
 }
 
+function getSupplierLookupDetails(row) {
+  const id = String(getRuleValue(row, ["ID", "SUPPLIER ID", "supplierId"]) || "").trim();
+  const code = String(getRuleValue(row, ["CODE", "SUPPLIER CODE", "supplierCode"]) || "").trim();
+  const name = String(getRuleValue(row, ["NAME", "SUPPLIER NAME", "supplierName"]) || "").trim();
+  const supplier = String(getRuleValue(row, ["SUPPLIER", "supplier", "NAME"]) || "").trim();
+  const canonicalSource = supplier || name || code || id;
+  return {
+    id,
+    code,
+    name,
+    supplier,
+    canonical: normalizeUpperTrim(canonicalSource),
+  };
+}
+
+function normalizeSupplierPricingVendor(value) {
+  const normalized = normalizeUpperTrim(value);
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.includes("TROJAN")) {
+    return "TROJAN";
+  }
+  if (normalized.includes("CSC")) {
+    return "CSC";
+  }
+  if (normalized.includes("CANO")) {
+    return "CANO";
+  }
+  if (normalized.includes("CUTTING") && normalized.includes("EDGE")) {
+    return "CUTTING EDGE";
+  }
+  if (normalized.includes("CORDECK")) {
+    return "CORDECK";
+  }
+  if (normalized.includes("HOUSTON") && normalized.includes("DECK")) {
+    return "HOUSTONBDECK";
+  }
+  if (normalized === "CSM") {
+    return "CSM";
+  }
+  return normalized;
+}
+
+function resolveSupplierForPricing(selectedValue) {
+  const selectedRaw = String(selectedValue || "");
+  const normalizedSelected = normalizeUpperTrim(selectedRaw);
+  const rows = getActiveSupplierRules();
+  let matchedRow = null;
+
+  if (normalizedSelected) {
+    matchedRow =
+      rows.find((row) => {
+        const details = getSupplierLookupDetails(row);
+        const candidates = [details.id, details.code, details.name, details.supplier]
+          .map((item) => normalizeUpperTrim(item))
+          .filter(Boolean);
+        return candidates.includes(normalizedSelected);
+      }) || null;
+  }
+
+  const matchedDetails = matchedRow ? getSupplierLookupDetails(matchedRow) : null;
+  const canonical = matchedDetails?.canonical || normalizedSelected;
+  return {
+    selectedRaw,
+    normalizedSelected,
+    matchedRow,
+    pricingSupplier: normalizeSupplierPricingVendor(canonical),
+  };
+}
+
+function logSupplierPricingDebug(message, payload) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+  console.debug(`[supplier-pricing] ${message}`, payload);
+}
+
 function normalizeSupplierRuleRow(row) {
   const supplier = String(getRuleValue(row, ["SUPPLIER", "supplier", "NAME"]) || "")
     .trim()
@@ -4839,7 +4917,8 @@ function calculateJoistsTotal() {
     return 0;
   }
 
-  if (state.joists.supplier === "CSC") {
+  const supplierLookup = resolveSupplierForPricing(state.joists.supplier);
+  if (supplierLookup.pricingSupplier === "CSC") {
     const bucket = getCscBucketForTons(tons);
     if (!bucket || bucket.cost <= 0) {
       resetJoistsOutputs();
@@ -4851,9 +4930,16 @@ function calculateJoistsTotal() {
     return totalPrice;
   }
 
-  const pounds = tons * pricing.CANO.poundsPerTon;
-  const totalPrice = pounds * pricing.CANO.ratePerPound;
-  return totalPrice;
+  if (supplierLookup.pricingSupplier === "CANO") {
+    const perLb = parseCurrency(state.admin.sections.cano.values.perLb);
+    if (perLb <= 0) {
+      return 0;
+    }
+    const pounds = tons * pricing.CANO.poundsPerTon;
+    return pounds * perLb;
+  }
+
+  return 0;
 }
 
 function computeTrojanShipping() {
@@ -5210,10 +5296,14 @@ function renderAccessoriesCogs() {
 
 function getJoistsPricingBreakdown() {
   const tons = parsePositiveNumberOrZero(state.joists.tons);
-  const supplier = String(state.joists.supplier || "").trim().toUpperCase();
+  const supplierLookup = resolveSupplierForPricing(state.joists.supplier);
+  const supplier = supplierLookup.pricingSupplier;
+  logSupplierPricingDebug("selected supplier value from UI", supplierLookup.selectedRaw);
+  logSupplierPricingDebug("supplier object found", supplierLookup.matchedRow || "not found");
   if (tons <= 0 || supplier === "") {
     return {
       hasJoists: false,
+      vendor: supplier,
       supplier,
       tons: 0,
       lbs: 0,
@@ -5224,16 +5314,42 @@ function getJoistsPricingBreakdown() {
       marginAmount: 0,
       totalCost: 0,
       detail: "",
+      errorMessage: "",
     };
   }
 
   if (supplier === "CANO") {
     const perLb = parseCurrency(state.admin.sections.cano.values.perLb);
+    logSupplierPricingDebug("price fields being used for calculation", {
+      supplier,
+      perLbRaw: state.admin.sections.cano.values.perLb,
+      perLb,
+      tons,
+    });
+    if (perLb <= 0) {
+      const marginAppliedMissing = applyPricingMargin(0, "joists");
+      return {
+        hasJoists: true,
+        vendor: supplier,
+        supplier,
+        tons,
+        lbs: tons * 2000,
+        baseCost: 0,
+        surcharge: 0,
+        subtotalCost: 0,
+        marginPercent: marginAppliedMissing.marginPercent,
+        marginAmount: marginAppliedMissing.marginAmount,
+        totalCost: 0,
+        detail: "",
+        errorMessage: "Missing required pricing for CANO: perLb ($/LB).",
+      };
+    }
     const lbs = tons * 2000;
     const baseCost = lbs * perLb;
     const marginApplied = applyPricingMargin(baseCost, "joists");
     return {
       hasJoists: true,
+      vendor: supplier,
       supplier,
       tons,
       lbs,
@@ -5244,12 +5360,39 @@ function getJoistsPricingBreakdown() {
       marginAmount: marginApplied.marginAmount,
       totalCost: marginApplied.totalWithMargin,
       detail: `${formatWholeNumber(lbs)} LB x ${formatCurrency(perLb)}/LB`,
+      errorMessage: "",
     };
   }
 
   if (supplier === "CSC") {
     const bucketPrice = getBucketPrice({ vendor: "CSC", scope: "JOISTS", tons });
     const ratePerTon = bucketPrice.pricePerTon;
+    logSupplierPricingDebug("price fields being used for calculation", {
+      supplier,
+      tons,
+      bucketStart: bucketPrice.bucketStart,
+      bucketEnd: bucketPrice.bucketEnd,
+      ratePerTon,
+      extraShippingFee_0_9: state.admin.sections.csc.values.joists.extraShippingFee_0_9,
+    });
+    if (ratePerTon <= 0) {
+      const marginAppliedMissing = applyPricingMargin(0, "joists");
+      return {
+        hasJoists: true,
+        vendor: supplier,
+        supplier,
+        tons,
+        lbs: tons * 2000,
+        baseCost: 0,
+        surcharge: 0,
+        subtotalCost: 0,
+        marginPercent: marginAppliedMissing.marginPercent,
+        marginAmount: marginAppliedMissing.marginAmount,
+        totalCost: 0,
+        detail: "",
+        errorMessage: "Missing required pricing for CSC: JOISTS bucket cost for selected tonnage.",
+      };
+    }
     const baseCost = tons * ratePerTon;
     const surcharge =
       bucketPrice.bucketStart === 0 && bucketPrice.bucketEnd === 9
@@ -5259,6 +5402,7 @@ function getJoistsPricingBreakdown() {
     const marginApplied = applyPricingMargin(subtotalCost, "joists");
     return {
       hasJoists: true,
+      vendor: supplier,
       supplier,
       tons,
       lbs: tons * 2000,
@@ -5269,12 +5413,19 @@ function getJoistsPricingBreakdown() {
       marginAmount: marginApplied.marginAmount,
       totalCost: marginApplied.totalWithMargin,
       detail: `${formatTwoDecimals(tons)} TONS x ${formatCurrency(ratePerTon)}/TON`,
+      errorMessage: "",
     };
   }
 
+  logSupplierPricingDebug("price fields being used for calculation", {
+    supplier,
+    tons,
+    note: "No configured joist pricing branch for supplier",
+  });
   const marginApplied = applyPricingMargin(0, "joists");
   return {
     hasJoists: true,
+    vendor: supplier,
     supplier,
     tons,
     lbs: tons * 2000,
@@ -5285,6 +5436,7 @@ function getJoistsPricingBreakdown() {
     marginAmount: marginApplied.marginAmount,
     totalCost: 0,
     detail: "",
+    errorMessage: `No joist pricing configured for supplier "${supplierLookup.selectedRaw || supplier}".`,
   };
 }
 
@@ -5354,6 +5506,8 @@ function renderJoistsCogs(overrideBreakdown = null) {
   if (!breakdown.hasJoists) {
     return '<p class="help-text">No joists in scope.</p>';
   }
+  const detailMarkup = breakdown.detail ? `<p class="pricing-cogs-meta">${breakdown.detail}</p>` : "";
+  const errorMarkup = breakdown.errorMessage ? `<p class="help-text">${escapeHtml(breakdown.errorMessage)}</p>` : "";
 
   const surchargeLineItem =
     breakdown.surcharge > 0
@@ -5372,7 +5526,8 @@ function renderJoistsCogs(overrideBreakdown = null) {
         <div class="pricing-cogs-row"><span>${breakdown.supplier} Joist Cost</span><strong>${formatMoney(
           breakdown.baseCost,
         )}</strong></div>
-        <p class="pricing-cogs-meta">${breakdown.detail}</p>
+        ${detailMarkup}
+        ${errorMarkup}
       </div>
       ${surchargeLineItem}
       <div class="pricing-cogs-item">
@@ -5540,37 +5695,44 @@ function renderDetailingCogs(breakdown) {
 function getBrokeredDeckPricingBreakdown() {
   const roundToTwo = (value) => Math.round(parsePositiveNumberOrZero(value) * 100) / 100;
   const assignments = (state.vendorPlan?.deckAssignments || []).filter((item) => item.vendor !== "TROJAN" && item.tons > 0);
+  const adminPricingSnapshot = getAdminPricingSnapshot();
   const grouped = new Map();
   assignments.forEach((item) => {
     const vendor = String(item.vendor || "").trim().toUpperCase();
     if (!grouped.has(vendor)) {
-      grouped.set(vendor, { vendor, tons: 0, lbs: 0, cost: 0, pricingMode: "none", detail: "" });
+      grouped.set(vendor, { vendor, tons: 0, lbs: 0, cost: 0, pricingMode: "none", detail: "", errorMessage: "" });
     }
     const entry = grouped.get(vendor);
     entry.tons += parsePositiveNumberOrZero(item.tons);
   });
 
   const entries = Array.from(grouped.values()).map((entry) => {
+    const supplierLookup = resolveSupplierForPricing(entry.vendor);
+    const pricingVendor = supplierLookup.pricingSupplier;
     entry.tons = roundToTwo(entry.tons);
     entry.lbs = entry.tons * 2000;
-    if (entry.vendor === "CANO") {
+    if (pricingVendor === "CANO") {
       const perLb = parseCurrency(state.admin.sections.cano.values.perLb);
-      entry.cost = entry.lbs * perLb;
+      entry.cost = perLb > 0 ? entry.lbs * perLb : 0;
       entry.pricingMode = "cano";
       entry.detail = `${formatWholeNumber(entry.lbs)} LB x ${formatCurrency(perLb)}/LB`;
+      if (perLb <= 0) {
+        entry.errorMessage = "Missing required pricing for CANO: perLb ($/LB).";
+      }
       return entry;
     }
-    if (entry.vendor === "CSC") {
-      const bucketPrice = getBucketPrice({ vendor: "CSC", scope: "DECK", tons: entry.tons });
-      const ratePerTon = bucketPrice.pricePerTon;
+    const ratePerTon = getDeckRateForVendor(pricingVendor, entry.tons, adminPricingSnapshot);
+    if (ratePerTon > 0) {
       entry.cost = entry.tons * ratePerTon;
-      entry.pricingMode = "csc";
+      entry.pricingMode = pricingVendor === "CSC" ? "csc" : "factor";
       entry.detail = `${formatTwoDecimals(entry.tons)} TONS x ${formatCurrency(ratePerTon)}/TON`;
       return entry;
     }
+
     entry.cost = 0;
     entry.pricingMode = "none";
-    entry.detail = "No admin pricing configured for this supplier";
+    entry.detail = "";
+    entry.errorMessage = `No pricing configured for supplier "${entry.vendor}".`;
     return entry;
   });
 
@@ -5609,7 +5771,8 @@ function renderBrokeredDeckCogs(overrideBreakdown = null) {
       (entry) => `
       <div class="pricing-cogs-item">
         <div class="pricing-cogs-row"><span>${entry.vendor} Deck Cost</span><strong>${formatMoney(entry.cost)}</strong></div>
-        <p class="pricing-cogs-meta">${entry.detail}</p>
+        ${entry.detail ? `<p class="pricing-cogs-meta">${entry.detail}</p>` : ""}
+        ${entry.errorMessage ? `<p class="help-text">${escapeHtml(entry.errorMessage)}</p>` : ""}
       </div>
     `,
     )
