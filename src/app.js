@@ -1,6 +1,7 @@
 import "./weights.js";
 import { supabase, supabaseConfig } from "./supabaseClient.js";
 import { computeEffectiveUnitPrice, computeLineTotals, toCurrency, toPct } from "./utils/optimizationPricing.mjs";
+import { computeDeckRollups } from "./utils/deckRollups.mjs";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py
@@ -7979,10 +7980,15 @@ function updateVendorStrategyAndAssignments() {
     supplierInput.value = state.joists.supplier;
   }
 
+  const deckRollups = computeDeckRollups(strategy.deckAssignments);
+  strategy.rollups = {
+    trojanDeckTons: deckRollups.trojanDeckTons,
+    brokeredDeckTons: deckRollups.brokeredDeckTons,
+  };
   state.vendorPlan = strategy;
-  state.totals.trojanDeckTons = strategy.rollups.trojanDeckTons;
-  state.totals.brokeredDeckTons = strategy.rollups.brokeredDeckTons;
-  state.totals.deckTotal = strategy.deckAssignments.reduce((sum, item) => sum + item.extendedTotal, 0);
+  state.totals.trojanDeckTons = deckRollups.trojanDeckTons;
+  state.totals.brokeredDeckTons = deckRollups.brokeredDeckTons;
+  state.totals.deckTotal = deckRollups.totalExtended;
 }
 
 function updateCalculator() {
