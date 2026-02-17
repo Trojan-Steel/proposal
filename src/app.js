@@ -1,5 +1,6 @@
 import "./weights.js";
 import { supabase, supabaseConfig } from "./supabaseClient.js";
+import { computeEffectiveUnitPrice, computeLineTotals, toCurrency, toPct } from "./utils/optimizationPricing.mjs";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py
@@ -880,6 +881,36 @@ function applyPricingMargin(subtotal, sectionKey) {
     marginAmount,
     totalWithMargin: subtotal + marginAmount,
   };
+}
+
+function renderOptimizationSummaryLine({
+  scopeLabel,
+  vendorLabel = "",
+  quantity,
+  unitLabel = "TON",
+  baseUnitPrice,
+  marginPercent,
+  lineTotal,
+  suffixText = "",
+}) {
+  const safeQuantity = parsePositiveNumberOrZero(quantity);
+  const safeBaseUnitPrice = parsePositiveNumberOrZero(baseUnitPrice);
+  const safeLineTotal = parsePositiveNumberOrZero(lineTotal);
+  const pricing = computeLineTotals(safeQuantity, safeBaseUnitPrice, marginPercent);
+  const lineTotalToDisplay = safeLineTotal > 0 ? safeLineTotal : pricing.lineTotal;
+  const descriptor = vendorLabel ? `${scopeLabel} (${escapeHtml(vendorLabel)})` : scopeLabel;
+  const normalizedUnitLabel = String(unitLabel || "TON").trim().toUpperCase();
+  const suffix = suffixText ? ` | ${suffixText}` : "";
+  return `
+    <p class="pricing-line-item-meta">
+      ${descriptor}: ${formatTwoDecimals(safeQuantity)} ${normalizedUnitLabel} × ${toCurrency(safeBaseUnitPrice)}/${normalizedUnitLabel} (BASE)
+      → ${toCurrency(computeEffectiveUnitPrice(safeBaseUnitPrice, marginPercent))}/${normalizedUnitLabel} (WITH ${toPct(
+        marginPercent,
+      )} MARGIN)
+      | Margin ${toCurrency(pricing.marginDollars)}${suffix}
+      | Line Total ${toCurrency(lineTotalToDisplay)}
+    </p>
+  `;
 }
 
 const MIN_MARGIN_ALLOCATION_PRIORITY = [
@@ -7058,12 +7089,14 @@ function getDeckBreakdownFromAssignments(assignments) {
     getDeckCostBreakdownForOptimizationVendor(vendor, tons),
   );
   const totalCost = entries.reduce((sum, entry) => sum + parsePositiveNumberOrZero(entry.totalCost), 0);
+  const subtotalCost = entries.reduce((sum, entry) => sum + parsePositiveNumberOrZero(entry.subtotalCost), 0);
   const marginAmount = entries.reduce((sum, entry) => sum + parsePositiveNumberOrZero(entry.marginAmount), 0);
   const totalTons = entries.reduce((sum, entry) => sum + parsePositiveNumberOrZero(entry.tons), 0);
   const detail = entries.map((entry) => `${entry.vendor}: ${entry.detail}`).join(" | ");
   return {
     vendor: entries.length === 1 ? entries[0].vendor : "MIXED",
     tons: totalTons,
+    subtotalCost,
     marginAmount,
     totalCost,
     detail,
@@ -7316,48 +7349,68 @@ function renderPricingOptimizationResults() {
         state.appliedOptimizationSelection.deckMode === (scenario.deckMode || "auto") &&
         state.appliedOptimizationSelection.deckVendor === (scenario.deckVendor || "") &&
         state.appliedOptimizationSelection.joistVendor === (scenario.joistVendor || "");
-      const deckMarginText =
-        scenario.deckBreakdown && Number.isFinite(scenario.deckBreakdown.marginPercent)
-          ? ` | MARGIN ${formatTwoDecimals(scenario.deckBreakdown.marginPercent)}%`
-          : scenario.deckBreakdown
-            ? ` | MARGIN ${formatMoney(scenario.deckBreakdown.marginAmount || 0)}`
-            : "";
       const deckLine =
         scenario.deckBreakdown && Array.isArray(scenario.deckBreakdown.entries)
           ? scenario.deckBreakdown.entries
               .map((entry) => {
-                const entryMarginText = Number.isFinite(entry.marginPercent)
-                  ? ` | MARGIN ${formatTwoDecimals(entry.marginPercent)}%`
-                  : ` | MARGIN ${formatMoney(entry.marginAmount || 0)}`;
-                return `
-                  <p class="pricing-line-item-meta">
-                    DECK (${entry.vendor}): ${entry.detail}${entryMarginText}
-                    | TOTAL ${formatMoney(entry.totalCost)}
-                  </p>
-                `;
+                const entryTons = parsePositiveNumberOrZero(entry.tons);
+                const baseUnitPrice = entryTons > 0 ? parsePositiveNumberOrZero(entry.subtotalCost) / entryTons : 0;
+                return renderOptimizationSummaryLine({
+                  scopeLabel: "DECK",
+                  vendorLabel: entry.vendor,
+                  quantity: entryTons,
+                  unitLabel: "TON",
+                  baseUnitPrice,
+                  marginPercent: entry.marginPercent,
+                  lineTotal: entry.totalCost,
+                });
               })
               .join("")
           : scenario.deckBreakdown
-            ? `
-              <p class="pricing-line-item-meta">
-                DECK (${scenario.deckBreakdown.vendor}): ${scenario.deckBreakdown.detail}${deckMarginText}
-                | TOTAL ${formatMoney(scenario.deckBreakdown.totalCost)}
-              </p>
-            `
+            ? renderOptimizationSummaryLine({
+                scopeLabel: "DECK",
+                vendorLabel: scenario.deckBreakdown.vendor,
+                quantity: scenario.deckBreakdown.tons,
+                unitLabel: "TON",
+                baseUnitPrice:
+                  parsePositiveNumberOrZero(scenario.deckBreakdown.tons) > 0
+                    ? parsePositiveNumberOrZero(scenario.deckBreakdown.subtotalCost) /
+                      parsePositiveNumberOrZero(scenario.deckBreakdown.tons)
+                    : 0,
+                marginPercent: scenario.deckBreakdown.marginPercent,
+                lineTotal: scenario.deckBreakdown.totalCost,
+              })
             : "";
-      const joistSurchargeText =
-        scenario.joistBreakdown && scenario.joistBreakdown.surcharge > 0
-          ? ` | SURCHARGE ${formatMoney(scenario.joistBreakdown.surcharge)}`
-          : "";
       const joistLine = scenario.joistBreakdown
-        ? `
-          <p class="pricing-line-item-meta">
-            JOISTS (${scenario.joistBreakdown.vendor}): ${scenario.joistBreakdown.detail}${joistSurchargeText}
-            | MARGIN ${formatTwoDecimals(scenario.joistBreakdown.marginPercent)}%
-            | TOTAL ${formatMoney(scenario.joistBreakdown.totalCost)}
-          </p>
-        `
+        ? renderOptimizationSummaryLine({
+            scopeLabel: "JOISTS",
+            vendorLabel: scenario.joistBreakdown.vendor,
+            quantity: scenario.joistBreakdown.tons,
+            unitLabel: "TON",
+            baseUnitPrice:
+              parsePositiveNumberOrZero(scenario.joistBreakdown.tons) > 0
+                ? parsePositiveNumberOrZero(scenario.joistBreakdown.subtotalCost) /
+                  parsePositiveNumberOrZero(scenario.joistBreakdown.tons)
+                : 0,
+            marginPercent: scenario.joistBreakdown.marginPercent,
+            lineTotal: scenario.joistBreakdown.totalCost,
+            suffixText:
+              parsePositiveNumberOrZero(scenario.joistBreakdown.surcharge) > 0
+                ? `Surcharge ${toCurrency(scenario.joistBreakdown.surcharge)}`
+                : "",
+          })
         : "";
+      const accessoriesLine =
+        parsePositiveNumberOrZero(scenario.accessoriesCost) > 0
+          ? renderOptimizationSummaryLine({
+              scopeLabel: "ACCESSORIES",
+              quantity: 1,
+              unitLabel: "LOT",
+              baseUnitPrice: scenario.accessoriesCost,
+              marginPercent: 0,
+              lineTotal: scenario.accessoriesCost,
+            })
+          : "";
       const leadTimeLine = scenario.leadTimeRange
         ? `<p class="pricing-line-item-meta">LEAD TIME: ${
             formatLeadTimeRangeText(scenario.leadTimeRange) || "N/A"
@@ -7388,6 +7441,7 @@ function renderPricingOptimizationResults() {
           </div>
           ${deckLine}
           ${joistLine}
+          ${accessoriesLine}
           ${leadTimeLine}
         </div>
       `;
