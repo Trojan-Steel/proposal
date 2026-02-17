@@ -6038,7 +6038,8 @@ function findDetailingBucket(totalTons, scopeType, tier) {
   return null;
 }
 
-function getDetailingPricingBreakdown(subtotal, deckTons, joistTons) {
+function getDetailingPricingBreakdown(subtotal, deckTons, joistTons, options = {}) {
+  const syncState = options.syncState !== false;
   const safeSubtotal = parsePositiveNumberOrZero(subtotal);
   const safeDeckTons = parsePositiveNumberOrZero(deckTons);
   const safeJoistTons = parsePositiveNumberOrZero(joistTons);
@@ -6064,10 +6065,12 @@ function getDetailingPricingBreakdown(subtotal, deckTons, joistTons) {
       : 0;
   const finalTotal = safeSubtotal + detailingAmount;
 
-  state.pricingDetailing.detailingPercentAuto = autoPercent;
-  state.pricingDetailing.detailingAmount = detailingAmount;
-  state.pricingDetailing.subtotal = safeSubtotal;
-  state.pricingDetailing.finalTotal = finalTotal;
+  if (syncState) {
+    state.pricingDetailing.detailingPercentAuto = autoPercent;
+    state.pricingDetailing.detailingAmount = detailingAmount;
+    state.pricingDetailing.subtotal = safeSubtotal;
+    state.pricingDetailing.finalTotal = finalTotal;
+  }
 
   return {
     subtotal: safeSubtotal,
@@ -7161,10 +7164,14 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
       if (joistVendor && !pricedSupplierSets.pricedJoistSuppliers.has(joistVendor)) {
         return;
       }
-      const totalCost = (deckBreakdown?.totalCost || 0) + (joistBreakdown?.totalCost || 0) + accessoriesTotal;
-      if (parsePositiveNumberOrZero(totalCost) <= 0) {
+      const subtotalCost = (deckBreakdown?.totalCost || 0) + (joistBreakdown?.totalCost || 0) + accessoriesTotal;
+      if (parsePositiveNumberOrZero(subtotalCost) <= 0) {
         return;
       }
+      const detailingBreakdown = getDetailingPricingBreakdown(subtotalCost, requirements.deckTons, requirements.joistTons, {
+        syncState: false,
+      });
+      const finalTotal = parsePositiveNumberOrZero(detailingBreakdown.finalTotal);
       const marginAmount = (deckBreakdown?.marginAmount || 0) + (joistBreakdown?.marginAmount || 0);
       const deckSuppliers = Array.from(
         new Set(
@@ -7206,7 +7213,9 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
         deckBreakdown,
         joistBreakdown,
         accessoriesCost: accessoriesTotal,
-        totalCost,
+        subtotalCost,
+        detailingAmount: parsePositiveNumberOrZero(detailingBreakdown.detailingAmount),
+        finalTotal,
         marginAmount,
         leadTimeRange: scenarioLeadTime,
       });
@@ -7214,8 +7223,8 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
   });
 
   return Array.from(scenarioBySignature.values()).sort((a, b) => {
-    if (a.totalCost !== b.totalCost) {
-      return a.totalCost - b.totalCost;
+    if (a.finalTotal !== b.finalTotal) {
+      return a.finalTotal - b.finalTotal;
     }
     return b.marginAmount - a.marginAmount;
   });
@@ -7358,7 +7367,7 @@ function renderPricingOptimizationResults() {
         <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""}">
           <div class="pricing-line-item-main">
             <span>OPTION: ${scenario.label}</span>
-            <strong>${formatMoney(scenario.totalCost)}</strong>
+            <strong>${formatMoney(scenario.finalTotal || 0)}</strong>
           </div>
           <div class="pricing-option-secondary">
             <p class="pricing-line-item-meta pricing-line-item-meta-margin">
