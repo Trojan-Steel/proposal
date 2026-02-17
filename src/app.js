@@ -7153,6 +7153,29 @@ function applyMinimumMarginToScenarioDeckAndJoists(deckBreakdown, joistBreakdown
   }
 }
 
+function cloneOptimizationDeckBreakdown(breakdown) {
+  if (!breakdown || typeof breakdown !== "object") {
+    return null;
+  }
+  return {
+    ...breakdown,
+    entries: Array.isArray(breakdown.entries)
+      ? breakdown.entries.map((entry) => ({
+          ...entry,
+        }))
+      : [],
+  };
+}
+
+function cloneOptimizationJoistBreakdown(breakdown) {
+  if (!breakdown || typeof breakdown !== "object") {
+    return null;
+  }
+  return {
+    ...breakdown,
+  };
+}
+
 function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
   const accessoriesTotal = getAccessoriesCogsBreakdown().totalCogs || 0;
   const pricedSupplierSets = getPricedSupplierSets(adminPricingSnapshot);
@@ -7170,13 +7193,14 @@ function buildScenarioList(requirements, catalog, adminPricingSnapshot) {
       if (requirements.hasJoistScope && !joistVendor) {
         return;
       }
-      const joistBreakdown = joistVendor
+      const joistBreakdownRaw = joistVendor
         ? getVendorJoistCostBreakdownForOptimization(joistVendor, requirements.joistTons)
         : null;
-      if (requirements.hasJoistScope && parsePositiveNumberOrZero(joistBreakdown?.totalCost) <= 0) {
+      if (requirements.hasJoistScope && parsePositiveNumberOrZero(joistBreakdownRaw?.totalCost) <= 0) {
         return;
       }
-      const deckBreakdown = deckScenario.deckBreakdown;
+      const deckBreakdown = cloneOptimizationDeckBreakdown(deckScenario.deckBreakdown);
+      const joistBreakdown = cloneOptimizationJoistBreakdown(joistBreakdownRaw);
       applyMinimumMarginToScenarioDeckAndJoists(deckBreakdown, joistBreakdown);
       const label = buildOptimizationScenarioLabel(deckBreakdown, joistVendor, requirements.hasJoistScope);
       if (!label) {
