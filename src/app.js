@@ -7494,7 +7494,7 @@ function openProposalGenerator() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || "proposal";
-    const healthUrl = "/proposal-api/health";
+    const healthUrl = "/api/proposal-health";
     const proposalApiUrl = "/proposal-api/render";
     fetch(healthUrl)
       .then(async (healthResponse) => {

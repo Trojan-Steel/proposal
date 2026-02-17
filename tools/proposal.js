@@ -655,7 +655,7 @@
       downloadButton.textContent = "Generating PDF...";
     }
     try {
-      const healthUrl = "/proposal-api/health";
+      const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/proposal-api/render";
       const healthResponse = await fetch(healthUrl);
       if (!healthResponse.ok) {
