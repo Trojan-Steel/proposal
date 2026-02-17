@@ -60,6 +60,7 @@ const ADMIN_SECTION_CONFIG = {
       { key: "inboundFreightPerLb", label: "INBOUND FREIGHT ($/LB)", type: "currency" },
       { key: "laborPerLb", label: "LABOR ($/LB)", type: "currency" },
       { key: "outboundFreightPerMi", label: "OUTBOUND FREIGHT ($/MI)", type: "currency" },
+      { key: "minimumOutboundFreightPerTruck", label: "MIN OUTBOUND FREIGHT ($/TRUCK)", type: "currency" },
       { key: "facilityAddress", label: "FACILITY ADDRESS", type: "text" },
       { key: "accessoriesCostPerScrew", label: "COST PER SCREW ($)", type: "currency" },
       { key: "accessoriesCostPerTon", label: "ACCESSORIES COST PER TON ($/TON)", type: "currency" },
@@ -83,7 +84,7 @@ const ADMIN_SECTION_CONFIG = {
 const TROJAN_SUBSECTION_FIELDS = {
   inbound: ["coilCostPerLb", "inboundFreightPerLb"],
   mfg: ["laborPerLb"],
-  outbound: ["outboundFreightPerMi", "facilityAddress"],
+  outbound: ["outboundFreightPerMi", "minimumOutboundFreightPerTruck", "facilityAddress"],
   accessories: ["accessoriesCostPerScrew", "accessoriesCostPerTon"],
   leadTimes: [],
   margins: ["minimumProjectMargin"],
@@ -477,6 +478,7 @@ function createDefaultAdminState() {
           inboundFreightPerLb: "",
           laborPerLb: "",
           outboundFreightPerMi: "",
+          minimumOutboundFreightPerTruck: "",
           facilityAddress: "",
           accessoriesCostPerScrew: "",
           accessoriesCostPerTon: "",
@@ -1204,6 +1206,7 @@ function buildSharedSettingsBlobFromState() {
       inboundFreightPerLb: parseCurrency(state.admin.sections.trojan.values.inboundFreightPerLb),
       laborPerLb: parseCurrency(state.admin.sections.trojan.values.laborPerLb),
       outboundFreightPerMi: parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi),
+      minimumOutboundFreightPerTruck: parseCurrency(state.admin.sections.trojan.values.minimumOutboundFreightPerTruck),
       facilityAddress: String(state.admin.sections.trojan.values.facilityAddress || "").trim(),
       accessoriesCostPerScrew: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerScrew),
       accessoriesCostPerTon: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerTon),
@@ -1251,6 +1254,7 @@ function applySharedSettingsBlobToState(blob) {
     trojan.inboundFreightPerLb = parseCurrency(trojanPricing.inboundFreightPerLb);
     trojan.laborPerLb = parseCurrency(trojanPricing.laborPerLb);
     trojan.outboundFreightPerMi = parseCurrency(trojanPricing.outboundFreightPerMi);
+    trojan.minimumOutboundFreightPerTruck = parseCurrency(trojanPricing.minimumOutboundFreightPerTruck);
     trojan.facilityAddress = String(trojanPricing.facilityAddress || "").trim();
     trojan.accessoriesCostPerScrew = parseCurrency(trojanPricing.accessoriesCostPerScrew);
     trojan.accessoriesCostPerTon = parseCurrency(trojanPricing.accessoriesCostPerTon);
@@ -5381,6 +5385,7 @@ function computeTrojanShipping() {
   }, 0);
 
   const outboundRatePerMile = parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi);
+  const minimumFreightPerTruck = parseCurrency(state.admin.sections.trojan.values.minimumOutboundFreightPerTruck);
   const miles = parsePositiveNumberOrZero(state.milesFromTrojanFacility);
 
   if (totalTrojanDeckTons <= 0 || outboundRatePerMile <= 0 || miles <= 0) {
@@ -5396,7 +5401,8 @@ function computeTrojanShipping() {
   const totalTrojanDeckLbs = totalTrojanDeckTons * 2000;
   const truckCapacityLbs = 48000;
   const trucks = Math.ceil(totalTrojanDeckLbs / truckCapacityLbs);
-  const cost = trucks * miles * outboundRatePerMile;
+  const freightPerTruck = Math.max(miles * outboundRatePerMile, minimumFreightPerTruck);
+  const cost = trucks * freightPerTruck;
 
   return {
     cost,
@@ -5569,7 +5575,9 @@ function renderTrojanDeckCogs(overrideBreakdown = null) {
         <div class="pricing-cogs-row"><span>Outbound Freight</span><strong>${formatMoney(breakdown.outboundCost)}</strong></div>
         <p class="pricing-cogs-meta">${formatWholeNumber(breakdown.trucks)} trucks x ${formatTwoDecimals(
           breakdown.miles,
-        )} miles x ${formatCurrency(parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi))}/MI</p>
+        )} miles x ${formatCurrency(parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi))}/MI (min ${formatCurrency(
+          parseCurrency(state.admin.sections.trojan.values.minimumOutboundFreightPerTruck),
+        )}/truck)</p>
       </div>
       <div class="pricing-cogs-item">
         <div class="pricing-cogs-row"><span>Total COGS</span><strong>${formatMoney(breakdown.totalCogs)}</strong></div>
@@ -5613,12 +5621,13 @@ function getTrojanDeckCogsBreakdown(trojanDeckTonsOverride = null) {
   const inboundRate = parseCurrency(trojan.inboundFreightPerLb);
   const laborRate = parseCurrency(trojan.laborPerLb);
   const outboundRate = parseCurrency(trojan.outboundFreightPerMi);
+  const minimumFreightPerTruck = parseCurrency(trojan.minimumOutboundFreightPerTruck);
   const miles = parsePositiveNumberOrZero(state.milesFromTrojanFacility);
   const trucks = trojanDeckTons > 0 ? Math.ceil(lbs / 48000) : 0;
   const coilCost = lbs * coilRate;
   const inboundCost = lbs * inboundRate;
   const laborCost = lbs * laborRate;
-  const outboundCost = trucks * miles * outboundRate;
+  const outboundCost = trucks * Math.max(miles * outboundRate, minimumFreightPerTruck);
   const totalCogs = coilCost + inboundCost + laborCost + outboundCost;
   const minimumMarginAmount = getTrojanMinimumProjectMargin();
   const marginApplied = applyPricingMargin(totalCogs, "trojanDeck");
