@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Suppliers Excel to JSON Converter</title>
+    <style>
+      :root {
+        --bg: #f8f9fb;
+        --card: #ffffff;
+        --text: #111827;
+        --muted: #4b5563;
+        --border: #d1d5db;
+        --accent: #dc2626;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .wrap {
+        max-width: 760px;
+        margin: 28px auto;
+        padding: 0 16px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.3rem;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      input[type="file"] {
+        max-width: 100%;
+      }
+
+      button {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      button[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .meta {
+        font-size: 0.95rem;
+        margin-bottom: 10px;
+      }
+
+      pre {
+        margin: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #f3f4f6;
+        padding: 12px;
+        overflow: auto;
+        max-height: 320px;
+      }
+
+      .error {
+        color: #b91c1c;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Suppliers Excel to JSON Converter</h1>
+        <p>Upload <code>data/supplier-list.xlsx</code>. The first worksheet will be converted using the first row as headers.</p>
+
+        <div class="row">
+          <input id="excelFileInput" type="file" accept=".xlsx,.xls" />
+          <button id="downloadButton" type="button" disabled>Download JSON</button>
+        </div>
+
+        <div id="status" class="meta">Rows parsed: 0</div>
+        <div id="error" class="meta error" hidden></div>
+
+        <h2>First 2 Rows Preview</h2>
+        <pre id="preview">[]</pre>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+      const fileInput = document.getElementById('excelFileInput');
+      const downloadButton = document.getElementById('downloadButton');
+      const statusEl = document.getElementById('status');
+      const previewEl = document.getElementById('preview');
+      const errorEl = document.getElementById('error');
+
+      let convertedRows = [];
+
+      function showError(message) {
+        errorEl.hidden = false;
+        errorEl.textContent = message;
+      }
+
+      function clearError() {
+        errorEl.hidden = true;
+        errorEl.textContent = '';
+      }
+
+      function normalizeHeader(header, index) {
+        const text = String(header || '').trim();
+        return text === '' ? `column_${index + 1}` : text;
+      }
+
+      function isBlankRow(obj) {
+        return Object.values(obj).every((value) => String(value).trim() === '');
+      }
+
+      async function handleFileChange(event) {
+        clearError();
+        const file = event.target.files && event.target.files[0];
+        if (!file) {
+          convertedRows = [];
+          statusEl.textContent = 'Rows parsed: 0';
+          previewEl.textContent = '[]';
+          downloadButton.disabled = true;
+          return;
+        }
+
+        try {
+          const buffer = await file.arrayBuffer();
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+
+          if (!firstSheetName) {
+            throw new Error('No worksheet found in the file.');
+          }
+
+          const sheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            raw: false,
+            defval: '',
+            blankrows: false,
+          });
+
+          if (!rows.length) {
+            convertedRows = [];
+            statusEl.textContent = 'Rows parsed: 0';
+            previewEl.textContent = '[]';
+            downloadButton.disabled = true;
+            return;
+          }
+
+          const headers = rows[0].map((header, index) => normalizeHeader(header, index));
+          const dataRows = rows.slice(1);
+
+          convertedRows = dataRows
+            .map((row) => {
+              const item = {};
+              headers.forEach((header, index) => {
+                item[header] = row[index] === undefined ? '' : row[index];
+              });
+              return item;
+            })
+            .filter((item) => !isBlankRow(item));
+
+          statusEl.textContent = `Rows parsed: ${convertedRows.length}`;
+          previewEl.textContent = JSON.stringify(convertedRows.slice(0, 2), null, 2);
+          downloadButton.disabled = convertedRows.length === 0;
+        } catch (error) {
+          convertedRows = [];
+          statusEl.textContent = 'Rows parsed: 0';
+          previewEl.textContent = '[]';
+          downloadButton.disabled = true;
+          showError(`Failed to parse file: ${error.message}`);
+        }
+      }
+
+      function downloadJson() {
+        if (!convertedRows.length) {
+          return;
+        }
+        const jsonText = `${JSON.stringify(convertedRows, null, 2)}\n`;
+        const blob = new Blob([jsonText], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'suppliers.json';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(url);
+      }
+
+      fileInput.addEventListener('change', handleFileChange);
+      downloadButton.addEventListener('click', downloadJson);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "simple-calculator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite --config vite.config.mjs --host localhost --port 5173",
+    "dev:all": "concurrently --kill-others --names \"APP,PDF\" \"npm run dev\" \"npm run proposal:server\"",
+    "convert:suppliers": "node scripts/convert-suppliers-excel-to-json.js",
+    "proposal:pdf": "node scripts/render-proposal-pdf.mjs",
+    "proposal:server": "node scripts/proposal-pdf-server.mjs",
+    "proposal:health": "node scripts/proposal-health-check.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "http-server": "^14.1.1",
+    "puppeteer": "^24.37.3",
+    "vite": "^6.2.0"
+  }
+}

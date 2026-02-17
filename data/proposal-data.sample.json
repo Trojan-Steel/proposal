@@ -1,0 +1,29 @@
+{
+  "quoteRef": "TROJ26000274",
+  "proposalDate": "02/17/2026",
+  "validUntilDate": "03/19/2026",
+  "projectName": "SAMPLE PROJECT",
+  "locationText": "HOUSTON, TX",
+  "contactPhone": "(281) 954-4422",
+  "contactEmail": "estimating@trojansteel.com",
+  "takeoffByTrojan": "YES",
+  "cutListProvided": "NO",
+  "specsReviewed": "YES",
+  "submittalsLeadTime": "2-3 WEEKS",
+  "fabricationLeadTime": "10-12 WEEKS",
+  "deckLines": [
+    { "type": "1.5B20G60 GR50", "sqs": 12.5, "tons": 3.12 }
+  ],
+  "accessoriesLines": [
+    { "type": "#10TEKSCREWS", "screwCount": 2500, "tons": 0 }
+  ],
+  "joistLines": [
+    { "description": "K-SERIES", "units": 24, "tons": 4.21 }
+  ],
+  "totals": {
+    "totalDeckTons": 3.12,
+    "totalJoistTons": 4.21,
+    "grandTotal": 125000
+  },
+  "documentConditions": []
+}
