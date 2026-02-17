@@ -1,4 +1,6 @@
 const DEFAULT_MAX_MARGIN_PERCENT = 50;
+const DEFAULT_BOOST_TARGET_PCT = 0.855;
+const DEFAULT_BOOST_UNDERCUT_BUFFER = 1000;
 
 function toPositiveNumberOrZero(value) {
   const numeric = Number(value);
@@ -55,7 +57,42 @@ export function solveBoostedTrojanMarginPercent({
   return Math.max(0, Math.min(safeMaxMarginPercent, finiteMargin));
 }
 
-export function buildOptimizationBoostPlan(options, maxMarginPercent = DEFAULT_MAX_MARGIN_PERCENT) {
+export function computeBoostTarget({
+  benchmarkSubtotal,
+  boostTargetPctDefault = DEFAULT_BOOST_TARGET_PCT,
+  nextCheapestOverallSubtotal,
+  boostUndercutBuffer = DEFAULT_BOOST_UNDERCUT_BUFFER,
+}) {
+  const safeBenchmarkSubtotal = toPositiveNumberOrZero(benchmarkSubtotal);
+  const safeTargetPct = toPositiveNumberOrZero(boostTargetPctDefault) || DEFAULT_BOOST_TARGET_PCT;
+  const desiredTarget = safeBenchmarkSubtotal * safeTargetPct;
+  const safeNextCheapestOverallSubtotal = toPositiveNumberOrZero(nextCheapestOverallSubtotal);
+  const safeBuffer = toPositiveNumberOrZero(boostUndercutBuffer);
+  const capTarget =
+    safeNextCheapestOverallSubtotal > 0
+      ? safeNextCheapestOverallSubtotal - safeBuffer
+      : Number.POSITIVE_INFINITY;
+  const finalTarget = Math.min(desiredTarget, capTarget);
+  return {
+    desiredTarget,
+    capTarget,
+    finalTarget,
+  };
+}
+
+export function buildOptimizationBoostPlan(options, config = {}) {
+  const maxMarginPercent =
+    Number.isFinite(Number(config.maxMarginPercent)) && Number(config.maxMarginPercent) > 0
+      ? Number(config.maxMarginPercent)
+      : DEFAULT_MAX_MARGIN_PERCENT;
+  const boostTargetPctDefault =
+    Number.isFinite(Number(config.boostTargetPctDefault)) && Number(config.boostTargetPctDefault) > 0
+      ? Number(config.boostTargetPctDefault)
+      : DEFAULT_BOOST_TARGET_PCT;
+  const boostUndercutBuffer =
+    Number.isFinite(Number(config.boostUndercutBuffer)) && Number(config.boostUndercutBuffer) >= 0
+      ? Number(config.boostUndercutBuffer)
+      : DEFAULT_BOOST_UNDERCUT_BUFFER;
   const normalizedOptions = Array.isArray(options) ? options : [];
   const cscOnlyOptions = normalizedOptions.filter((option) => isCscOnlyOption(option));
   if (cscOnlyOptions.length === 0) {
@@ -72,16 +109,33 @@ export function buildOptimizationBoostPlan(options, maxMarginPercent = DEFAULT_M
   const lowestTrojanDeckOption = trojanDeckOptions.reduce((current, option) =>
     toPositiveNumberOrZero(option.subtotal) < toPositiveNumberOrZero(current.subtotal) ? option : current,
   );
+  const nextCheapestOverallOption = normalizedOptions
+    .filter((option) => String(option.id || "") !== String(lowestTrojanDeckOption.id || ""))
+    .reduce((current, option) => {
+      if (!current) {
+        return option;
+      }
+      return toPositiveNumberOrZero(option.subtotal) < toPositiveNumberOrZero(current.subtotal) ? option : current;
+    }, null);
 
   const benchmarkSubtotal = toPositiveNumberOrZero(highestCscOnlyOption.subtotal);
-  const targetSubtotal = benchmarkSubtotal * 0.75;
+  const nextCheapestOverallSubtotal = toPositiveNumberOrZero(nextCheapestOverallOption?.subtotal);
+  const target = computeBoostTarget({
+    benchmarkSubtotal,
+    boostTargetPctDefault,
+    nextCheapestOverallSubtotal,
+    boostUndercutBuffer,
+  });
   const currentTrojanSubtotal = toPositiveNumberOrZero(lowestTrojanDeckOption.subtotal);
-  if (currentTrojanSubtotal >= targetSubtotal) {
+  if (target.finalTarget <= currentTrojanSubtotal) {
     return {
       ok: false,
       reason: "Already above target",
       benchmarkSubtotal,
-      targetSubtotal,
+      desiredTarget: target.desiredTarget,
+      capTarget: target.capTarget,
+      targetSubtotal: target.finalTarget,
+      nextCheapestOverallSubtotal,
       boostedOptionId: String(lowestTrojanDeckOption.id || ""),
     };
   }
@@ -90,14 +144,19 @@ export function buildOptimizationBoostPlan(options, maxMarginPercent = DEFAULT_M
     optionSubtotal: currentTrojanSubtotal,
     trojanDeckBaseSubtotal: lowestTrojanDeckOption.trojanDeckBaseSubtotal,
     currentTrojanMarginPercent: lowestTrojanDeckOption.currentTrojanMarginPercent,
-    targetSubtotal,
+    targetSubtotal: target.finalTarget,
     maxMarginPercent,
   });
 
   return {
     ok: true,
     benchmarkSubtotal,
-    targetSubtotal,
+    desiredTarget: target.desiredTarget,
+    capTarget: target.capTarget,
+    targetSubtotal: target.finalTarget,
+    nextCheapestOverallSubtotal,
+    boostTargetPctDefault,
+    boostUndercutBuffer,
     boostedOptionId: String(lowestTrojanDeckOption.id || ""),
     boostedOriginalTrojanMarginPercent: toPositiveNumberOrZero(lowestTrojanDeckOption.currentTrojanMarginPercent),
     boostedTrojanMarginPercent,

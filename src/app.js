@@ -72,6 +72,8 @@ const ADMIN_SECTION_CONFIG = {
       { key: "accessoriesCostPerScrew", label: "COST PER SCREW ($)", type: "currency" },
       { key: "accessoriesCostPerTon", label: "ACCESSORIES COST PER TON ($/TON)", type: "currency" },
       { key: "minimumProjectMargin", label: "Minimum Project Margin", type: "currency" },
+      { key: "boostTargetPctDefault", label: "BOOST TARGET PCT (DECIMAL)", type: "text" },
+      { key: "boostUndercutBuffer", label: "BOOST UNDERCUT BUFFER ($)", type: "currency" },
     ],
   },
   csc: {
@@ -94,7 +96,7 @@ const TROJAN_SUBSECTION_FIELDS = {
   outbound: ["outboundFreightPerMi", "minimumOutboundFreightPerTruck", "facilityAddress"],
   accessories: ["accessoriesCostPerScrew", "accessoriesCostPerTon"],
   leadTimes: [],
-  margins: ["minimumProjectMargin"],
+  margins: ["minimumProjectMargin", "boostTargetPctDefault", "boostUndercutBuffer"],
   conditions: [],
 };
 
@@ -490,6 +492,8 @@ function createDefaultAdminState() {
           accessoriesCostPerScrew: "",
           accessoriesCostPerTon: "",
           minimumProjectMargin: 4000,
+          boostTargetPctDefault: "0.855",
+          boostUndercutBuffer: 1000,
           documentConditions: [],
           leadTimes: leadTimes.trojan,
         },
@@ -843,6 +847,8 @@ let lastMilesRequestToken = 0;
 let pricingOptimizationTimer = null;
 let adminStatusTimer = null;
 const OPTIMIZATION_BOOST_MAX_MARGIN_PERCENT = 50;
+const DEFAULT_BOOST_TARGET_PCT = 0.855;
+const DEFAULT_BOOST_UNDERCUT_BUFFER = 1000;
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-US", {
@@ -956,6 +962,23 @@ const MIN_MARGIN_ALLOCATION_PRIORITY = [
 
 function getTrojanMinimumProjectMargin() {
   return parseCurrency(state.admin.sections.trojan.values.minimumProjectMargin || 4000);
+}
+
+function getOptimizationBoostTargetPctDefault() {
+  const raw = state.admin.sections.trojan.values.boostTargetPctDefault;
+  const parsed = Number.parseFloat(String(raw ?? "").trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_BOOST_TARGET_PCT;
+  }
+  return parsed;
+}
+
+function getOptimizationBoostUndercutBuffer() {
+  const value = parseCurrency(state.admin.sections.trojan.values.boostUndercutBuffer);
+  if (value <= 0) {
+    return DEFAULT_BOOST_UNDERCUT_BUFFER;
+  }
+  return value;
 }
 
 function enforceMinProjectMarginByPriority(participants, minProjectMargin) {
@@ -1272,6 +1295,8 @@ function buildSharedSettingsBlobFromState() {
       accessoriesCostPerScrew: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerScrew),
       accessoriesCostPerTon: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerTon),
       minimumProjectMargin: parseCurrency(state.admin.sections.trojan.values.minimumProjectMargin),
+      boostTargetPctDefault: getOptimizationBoostTargetPctDefault(),
+      boostUndercutBuffer: getOptimizationBoostUndercutBuffer(),
     },
     [SHARED_SETTINGS_KEYS.cscPricing]: normalizeCscValues(state.admin.sections.csc.values),
     [SHARED_SETTINGS_KEYS.canoPricing]: normalizeCanoValues(state.admin.sections.cano.values),
@@ -1320,6 +1345,12 @@ function applySharedSettingsBlobToState(blob) {
     trojan.accessoriesCostPerScrew = parseCurrency(trojanPricing.accessoriesCostPerScrew);
     trojan.accessoriesCostPerTon = parseCurrency(trojanPricing.accessoriesCostPerTon);
     trojan.minimumProjectMargin = parseCurrency(trojanPricing.minimumProjectMargin);
+    trojan.boostTargetPctDefault = String(
+      Number.isFinite(Number(trojanPricing.boostTargetPctDefault))
+        ? Number(trojanPricing.boostTargetPctDefault)
+        : DEFAULT_BOOST_TARGET_PCT,
+    );
+    trojan.boostUndercutBuffer = parseCurrency(trojanPricing.boostUndercutBuffer || DEFAULT_BOOST_UNDERCUT_BUFFER);
   }
   if (cscPricing && typeof cscPricing === "object") {
     state.admin.sections.csc.values = normalizeCscValues(cscPricing);
@@ -7289,7 +7320,11 @@ function getOptimizationBoostContextFromScenarios(scenarios = []) {
       currentTrojanMarginPercent: parsePositiveNumberOrZero(trojanEntry?.marginPercent),
     };
   });
-  const plan = buildOptimizationBoostPlan(optionRows, OPTIMIZATION_BOOST_MAX_MARGIN_PERCENT);
+  const plan = buildOptimizationBoostPlan(optionRows, {
+    maxMarginPercent: OPTIMIZATION_BOOST_MAX_MARGIN_PERCENT,
+    boostTargetPctDefault: getOptimizationBoostTargetPctDefault(),
+    boostUndercutBuffer: getOptimizationBoostUndercutBuffer(),
+  });
   const hasCscOnlyOption = optionRows.some((option) => isCscOnlyOption(option));
   const hasTrojanManufacturingOption = optionRows.some((option) => hasTrojanDeckOption(option));
   let unavailableReason = "";

@@ -2,17 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildOptimizationBoostPlan,
+  computeBoostTarget,
   isCscOnlyOption,
   solveBoostedTrojanMarginPercent,
 } from "../src/utils/optimizationBoost.mjs";
 
 const near = (actual, expected, epsilon = 1e-6) => Math.abs(actual - expected) <= epsilon;
 
-test("boost picks highest CSC-only benchmark and solves target margin", () => {
+test("boost uses 85.5% benchmark target capped by cheapest-buffer rule", () => {
   const options = [
     {
       id: "trojan-csc",
-      subtotal: 285000,
+      subtotal: 320000,
       deckVendors: ["TROJAN", "CSC"],
       joistVendor: "CSC",
       trojanDeckBaseSubtotal: 230000,
@@ -36,20 +37,40 @@ test("boost picks highest CSC-only benchmark and solves target margin", () => {
     },
   ];
 
-  const plan = buildOptimizationBoostPlan(options, 50);
+  const plan = buildOptimizationBoostPlan(options, {
+    maxMarginPercent: 50,
+    boostTargetPctDefault: 0.855,
+    boostUndercutBuffer: 1000,
+  });
   assert.equal(plan.ok, true);
   assert.equal(plan.boostedOptionId, "trojan-csc");
   assert.ok(near(plan.benchmarkSubtotal, 433004.65));
-  assert.ok(near(plan.targetSubtotal, 324753.4875));
+  assert.ok(near(plan.desiredTarget, 370218.97575));
+  assert.ok(near(plan.nextCheapestOverallSubtotal, 410000));
+  assert.ok(near(plan.capTarget, 409000));
+  assert.ok(near(plan.targetSubtotal, 370218.97575));
 
   const solved = solveBoostedTrojanMarginPercent({
-    optionSubtotal: 285000,
+    optionSubtotal: 320000,
     trojanDeckBaseSubtotal: 230000,
     currentTrojanMarginPercent: 15,
-    targetSubtotal: 324753.4875,
+    targetSubtotal: 370218.97575,
     maxMarginPercent: 50,
   });
   assert.ok(near(plan.boostedTrojanMarginPercent, solved));
+  assert.ok(plan.targetSubtotal <= plan.nextCheapestOverallSubtotal - 1000);
+});
+
+test("computeBoostTarget uses min(desiredTarget, capTarget)", () => {
+  const target = computeBoostTarget({
+    benchmarkSubtotal: 500000,
+    boostTargetPctDefault: 0.855,
+    nextCheapestOverallSubtotal: 420000,
+    boostUndercutBuffer: 1000,
+  });
+  assert.ok(near(target.desiredTarget, 427500));
+  assert.ok(near(target.capTarget, 419000));
+  assert.ok(near(target.finalTarget, 419000));
 });
 
 test("boost modifies only selected Trojan option and unboost restores original margin", () => {
