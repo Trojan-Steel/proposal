@@ -561,6 +561,10 @@ th.align-center {
   flex-direction: column;
 }
 
+.terms-final-content {
+  display: block;
+}
+
 .terms-ack-bottom {
   margin-top: auto;
 }
@@ -692,5 +696,19 @@ th.align-center {
   .proposal-page:last-child {
     page-break-after: auto;
     break-after: auto;
+  }
+
+  .terms-page-with-ack {
+    display: flex;
+    flex-direction: column;
+    min-height: 10in;
+  }
+
+  .terms-page-with-ack .terms-final-content {
+    flex: 0 0 auto;
+  }
+
+  .terms-page-with-ack .terms-ack-bottom {
+    margin-top: auto;
   }
 }

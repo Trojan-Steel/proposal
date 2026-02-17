@@ -135,6 +135,13 @@ async function renderProposalPdf(proposalData) {
         }
         .proposal-page.page-break { break-after: page; page-break-after: always; }
         .proposal-page:last-child { break-after: auto !important; page-break-after: auto !important; }
+        .terms-page-with-ack {
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 10in !important;
+        }
+        .terms-page-with-ack .terms-final-content { flex: 0 0 auto; }
+        .terms-page-with-ack .terms-ack-bottom { margin-top: auto !important; }
       `,
     });
     const pdfBuffer = await page.pdf({
