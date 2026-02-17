@@ -1,5 +1,5 @@
 import "./weights.js";
-import { supabase } from "./supabaseClient.js";
+import { supabase, supabaseConfig } from "./supabaseClient.js";
 // Deck weight lookup is generated from "Deck Weights.xlsx".
 // If weights.js is missing, place "Deck Weights.xlsx" in ~/simple-calculator and run:
 //   python3 tools/build_weights.py
@@ -521,6 +521,7 @@ function createDefaultAdminState() {
       },
     },
     changelog: [],
+    outboundAddressLastSavedAt: null,
   };
 }
 
@@ -1004,6 +1005,26 @@ function setAdminStatus(message, options = {}) {
   }
 }
 
+function getSupabaseSafeErrorMessage(error, fallback = "Unknown error") {
+  const message = String(error?.message || "").trim();
+  if (message) {
+    return message.slice(0, 200);
+  }
+  return fallback;
+}
+
+function logSupabaseOperationFailure(operation, context = {}) {
+  const error = context.error || null;
+  console.error("Supabase operation failed", {
+    operation,
+    status: Number.isFinite(Number(context.status)) ? Number(context.status) : null,
+    code: typeof error?.code === "string" ? error.code : null,
+    message: typeof error?.message === "string" ? error.message : null,
+    details: typeof error?.details === "string" ? error.details : null,
+    hint: typeof error?.hint === "string" ? error.hint : null,
+  });
+}
+
 function parseStoredJsonObject(storageKey) {
   const raw = localStorage.getItem(storageKey);
   if (!raw) {
@@ -1183,6 +1204,7 @@ function buildSharedSettingsBlobFromState() {
       inboundFreightPerLb: parseCurrency(state.admin.sections.trojan.values.inboundFreightPerLb),
       laborPerLb: parseCurrency(state.admin.sections.trojan.values.laborPerLb),
       outboundFreightPerMi: parseCurrency(state.admin.sections.trojan.values.outboundFreightPerMi),
+      facilityAddress: String(state.admin.sections.trojan.values.facilityAddress || "").trim(),
       accessoriesCostPerScrew: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerScrew),
       accessoriesCostPerTon: parseCurrency(state.admin.sections.trojan.values.accessoriesCostPerTon),
       minimumProjectMargin: parseCurrency(state.admin.sections.trojan.values.minimumProjectMargin),
@@ -1229,6 +1251,7 @@ function applySharedSettingsBlobToState(blob) {
     trojan.inboundFreightPerLb = parseCurrency(trojanPricing.inboundFreightPerLb);
     trojan.laborPerLb = parseCurrency(trojanPricing.laborPerLb);
     trojan.outboundFreightPerMi = parseCurrency(trojanPricing.outboundFreightPerMi);
+    trojan.facilityAddress = String(trojanPricing.facilityAddress || "").trim();
     trojan.accessoriesCostPerScrew = parseCurrency(trojanPricing.accessoriesCostPerScrew);
     trojan.accessoriesCostPerTon = parseCurrency(trojanPricing.accessoriesCostPerTon);
     trojan.minimumProjectMargin = parseCurrency(trojanPricing.minimumProjectMargin);
@@ -1282,18 +1305,83 @@ function applyAdminPricingPayloadToState(parsed) {
 
 async function syncSharedSettingsToSupabase(settingsBlob = null) {
   if (!supabase) {
+    if (!supabaseConfig.isConfigured) {
+      setAdminStatus("Supabase not configured (missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY)", { isError: true });
+    }
     return;
   }
   const payload = settingsBlob && typeof settingsBlob === "object" ? settingsBlob : buildSharedSettingsBlobFromState();
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from(SUPABASE_APP_SETTINGS_TABLE)
-  .upsert({ id: SUPABASE_APP_SETTINGS_ID, data: payload }, { onConflict: "id" });
+    .upsert({ id: SUPABASE_APP_SETTINGS_ID, data: payload }, { onConflict: "id" });
 
   if (error) {
-    setAdminStatus("Save failed", { isError: true });
+    logSupabaseOperationFailure("syncSharedSettingsToSupabase", { status, error });
+    setAdminStatus(`Save failed: ${getSupabaseSafeErrorMessage(error)}`, { isError: true });
     return;
   }
   setAdminStatus("Saved for all users");
+}
+
+async function saveOutboundAddress(addressPayload = {}) {
+  const outboundAddress = String(addressPayload?.facilityAddress || "").trim();
+  if (!outboundAddress) {
+    setAdminStatus("Save failed: Outbound Address is required", { isError: true, clearAfterMs: 6000 });
+    return { ok: false, reason: "validation" };
+  }
+  if (!supabase) {
+    const message = !supabaseConfig.isConfigured
+      ? "Save failed: Supabase not configured (missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY)"
+      : "Save failed: Supabase client unavailable";
+    setAdminStatus(message, { isError: true, clearAfterMs: 6000 });
+    return { ok: false, reason: "config" };
+  }
+
+  state.admin.sections.trojan.values.facilityAddress = outboundAddress;
+  const sharedSettingsBlob = buildSharedSettingsBlobFromState();
+
+  const { data, error, status } = await supabase
+    .from(SUPABASE_APP_SETTINGS_TABLE)
+    .upsert({ id: SUPABASE_APP_SETTINGS_ID, data: sharedSettingsBlob }, { onConflict: "id" })
+    .select("id,data");
+
+  if (error) {
+    logSupabaseOperationFailure("saveOutboundAddress.upsert", { status, error });
+    const uiMessage = getSupabaseSafeErrorMessage(error);
+    setAdminStatus(`Save failed: ${uiMessage}`, { isError: true, clearAfterMs: 7000 });
+    return { ok: false, reason: "supabase_error", status, message: uiMessage };
+  }
+
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  if (rows.length < 1) {
+    const uiMessage = "No row was written to app_settings";
+    logSupabaseOperationFailure("saveOutboundAddress.no_rows", { status, error: { message: uiMessage } });
+    setAdminStatus(`Save failed: ${uiMessage}`, { isError: true, clearAfterMs: 7000 });
+    return { ok: false, reason: "no_rows", status };
+  }
+
+  const row = rows[0] && typeof rows[0] === "object" ? rows[0] : {};
+  const rowData = row.data && typeof row.data === "object" ? row.data : {};
+  const blob = rowData?.sharedSettingsBlob && typeof rowData.sharedSettingsBlob === "object" ? rowData.sharedSettingsBlob : rowData;
+  const savedAddress = String(blob?.[SHARED_SETTINGS_KEYS.trojanPricing]?.facilityAddress || "").trim();
+  if (!savedAddress) {
+    const uiMessage = "Saved row did not contain outbound address";
+    logSupabaseOperationFailure("saveOutboundAddress.readback_missing", { status, error: { message: uiMessage } });
+    setAdminStatus(`Save failed: ${uiMessage}`, { isError: true, clearAfterMs: 7000 });
+    return { ok: false, reason: "readback_missing", status };
+  }
+
+  state.admin.sections.trojan.values.facilityAddress = savedAddress;
+  state.admin.outboundAddressLastSavedAt = Date.now();
+  const payload = buildAdminPricingPayloadFromState();
+  writeAdminStateToLocalStorage(payload);
+  setAdminStatus(`Outbound Address saved (${formatAdminTimestamp(state.admin.outboundAddressLastSavedAt)})`, {
+    clearAfterMs: 6000,
+  });
+  renderAdminSections();
+  scheduleCalcMilesFromTrojan();
+  updateCalculator();
+  return { ok: true, savedAddress, status };
 }
 
 async function loadRemoteSharedSettings() {
@@ -1324,7 +1412,8 @@ const applied = applySharedSettingsBlobToState(blob);
   return applied;
 }
 
-function saveAdminState() {
+function saveAdminState(options = {}) {
+  const { skipRemoteSync = false } = options;
   const payload = buildAdminPricingPayloadFromState();
   writeAdminStateToLocalStorage(payload);
   const sharedSettingsBlob = buildSharedSettingsBlobFromState();
@@ -1334,7 +1423,9 @@ function saveAdminState() {
   localStorage.setItem("trojan_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}));
   localStorage.setItem("csc_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}));
   localStorage.setItem("cano_lead_times_v1", JSON.stringify(sharedSettingsBlob[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}));
-  void syncSharedSettingsToSupabase(sharedSettingsBlob);
+  if (!skipRemoteSync) {
+    void syncSharedSettingsToSupabase(sharedSettingsBlob);
+  }
 }
 
 function loadAdminState() {
@@ -4632,6 +4723,11 @@ function renderTrojanSubsection(section, subsectionKey, title) {
     })
     .join("");
 
+  const outboundSavedAtMarkup =
+    subsectionKey === "outbound" && Number.isFinite(Number(state.admin.outboundAddressLastSavedAt))
+      ? `<p class="help-text">Last saved at ${formatAdminTimestamp(state.admin.outboundAddressLastSavedAt)}</p>`
+      : "";
+
   const contentMarkup = subsection.isCollapsed
     ? ""
     : `
@@ -4642,6 +4738,7 @@ function renderTrojanSubsection(section, subsectionKey, title) {
           </button>
         </div>
         ${fieldsMarkup}
+        ${outboundSavedAtMarkup}
       </div>
     `;
 
@@ -5109,11 +5206,17 @@ function saveTrojanSubsection(subsectionKey) {
   });
 
   subsectionState.isEditing = false;
+  if (subsectionKey === "outbound") {
+    saveAdminState({ skipRemoteSync: true });
+    renderAdminSections();
+    void saveOutboundAddress({
+      facilityAddress: section.values.facilityAddress,
+    });
+    return;
+  }
+
   saveAdminState();
   renderAdminSections();
-  if (subsectionKey === "outbound") {
-    scheduleCalcMilesFromTrojan();
-  }
   updateCalculator();
 }
 
