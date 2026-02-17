@@ -7482,72 +7482,17 @@ function openProposalGenerator() {
     const quoteRef = getAndLogNextQuoteRef();
     const proposalData = buildProposalDataFromState({ quoteRef });
     window.localStorage.setItem(PROPOSAL_DATA_STORAGE_KEY, JSON.stringify(proposalData));
-    const projectSlug = String(proposalData.projectName || "project")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "project";
-    const quoteSlug = String(proposalData.quoteRef || "proposal")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "proposal";
-    const healthUrl = "/api/proposal-health";
-    const proposalApiUrl = "/api/proposal-render";
-    const healthFallbackUrl = "/proposal-api/health";
-    const proposalFallbackUrl = "/proposal-api/render";
-    const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-    const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
-      const response = await fetch(primaryUrl, options);
-      if (canUseLocalFallback && response.status === 404) {
-        return fetch(fallbackUrl, options);
-      }
-      return response;
-    };
-    fetchWithLocalFallback(healthUrl, healthFallbackUrl)
-      .then(async (healthResponse) => {
-        if (!healthResponse.ok) {
-          const text = (await healthResponse.text()).slice(0, 200);
-          throw new Error(`Health check failed at ${healthUrl} | status ${healthResponse.status} | body: ${text}`);
-        }
-        const data = await healthResponse.json().catch(() => null);
-        if (!data || data.ok !== true) {
-          throw new Error(`Health endpoint returned unexpected payload at ${healthUrl}`);
-        }
-      })
-      .then(() =>
-        fetchWithLocalFallback(proposalApiUrl, proposalFallbackUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ proposalData }),
-        }),
-      )
-      .then(async (response) => {
-        if (!response.ok) {
-          const text = (await response.text()).slice(0, 200);
-          throw new Error(`PDF server error at ${proposalApiUrl} | status ${response.status} | body: ${text}`);
-        }
-        return response.blob();
-      })
-      .then((blob) => {
-        const objectUrl = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = objectUrl;
-        link.download = `${projectSlug}-${quoteSlug}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      })
-      .catch((error) => {
-        const message = error?.message || String(error);
-        console.error("Failed to generate proposal PDF", { message, proposalApiUrl, healthUrl, error });
-        window.alert(
-          `Unable to download PDF.\nHealth URL: ${healthUrl}\nPDF URL: ${proposalApiUrl}\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/render are used if /api/* is unavailable.`,
-        );
-      });
+    const previewUrl = `tools/proposal.html?returnPage=${encodeURIComponent("pricing")}`;
+    const previewWindow = window.open(previewUrl, "_blank");
+    if (!previewWindow) {
+      window.location.href = previewUrl;
+      return;
+    }
+    try {
+      previewWindow.focus();
+    } catch (_focusError) {
+      // no-op: some browsers restrict focusing newly opened tabs
+    }
   } catch (error) {
     console.error("Failed to generate proposal", error);
     window.alert("Unable to generate proposal. Check console for details.");
