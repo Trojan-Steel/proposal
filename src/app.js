@@ -7554,8 +7554,7 @@ function getBoostPricingContext(optimization) {
     if (deckVendors.length === 0 || deckVendors.some((vendor) => vendor !== "CSC")) {
       return false;
     }
-    const joistVendor = String(scenario?.joistVendor || "").trim().toUpperCase();
-    return joistVendor === "" || joistVendor === "CSC";
+    return true;
   });
   if (cscOnlyScenarios.length === 0) {
     return {
@@ -7578,6 +7577,28 @@ function getBoostPricingContext(optimization) {
     cscTotal,
     boostTotal,
     boostFactor,
+  };
+}
+
+function getScenarioDisplayPricing(scenario, isBoostedApplied, boostContext) {
+  const baseSubtotal = parsePositiveNumberOrZero(scenario?.subtotalCost);
+  const baseMarginAmount = parsePositiveNumberOrZero(scenario?.marginAmount);
+  const baseCost = Math.max(0, baseSubtotal - baseMarginAmount);
+  if (!isBoostedApplied || !boostContext?.available || parsePositiveNumberOrZero(boostContext.boostTotal) <= 0) {
+    const marginPercent = baseSubtotal > 0 ? (baseMarginAmount / baseSubtotal) * 100 : 0;
+    return {
+      subtotal: baseSubtotal,
+      marginAmount: baseMarginAmount,
+      marginPercent,
+    };
+  }
+  const boostedSubtotal = parsePositiveNumberOrZero(boostContext.boostTotal);
+  const boostedMarginAmount = boostedSubtotal - baseCost;
+  const boostedMarginPercent = boostedSubtotal > 0 ? (boostedMarginAmount / boostedSubtotal) * 100 : 0;
+  return {
+    subtotal: boostedSubtotal,
+    marginAmount: boostedMarginAmount,
+    marginPercent: boostedMarginPercent,
   };
 }
 
@@ -7744,26 +7765,19 @@ function renderPricingOptimizationResults() {
           }</p>`
         : "";
       const boostedBadge = isBoosted ? '<span class="pricing-boosted-badge">BOOSTED</span>' : "";
-      const marginPercent =
-        parsePositiveNumberOrZero(scenario.subtotalCost) > 0
-          ? (parsePositiveNumberOrZero(scenario.marginAmount) / parsePositiveNumberOrZero(scenario.subtotalCost)) * 100
-          : 0;
+      const displayPricing = getScenarioDisplayPricing(scenario, isBoosted, boostContext);
       return `
         <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""} ${
           isBoosted ? "pricing-optimization-boosted" : ""
         }">
           <div class="pricing-line-item-main">
             <span>OPTION: ${scenario.label} ${boostedBadge}</span>
-            <strong>${formatMoney(scenario.subtotalCost || 0)}</strong>
+            <strong>${formatMoney(displayPricing.subtotal || 0)}</strong>
           </div>
           <div class="pricing-option-secondary">
             <p class="pricing-line-item-meta pricing-line-item-meta-margin">
               <span>TOTAL MARGIN:</span>
-              <span>${formatMoney(scenario.marginAmount || 0)}</span>
-            </p>
-            <p class="pricing-line-item-meta pricing-line-item-meta-margin">
-              <span>MARGIN %:</span>
-              <span>${formatTwoDecimals(marginPercent)}%</span>
+              <span>${formatMoney(displayPricing.marginAmount || 0)} (${formatTwoDecimals(displayPricing.marginPercent)}%)</span>
             </p>
           </div>
           <div class="pricing-optimization-actions">

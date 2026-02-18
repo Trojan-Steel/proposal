@@ -1272,28 +1272,11 @@ button,
 }
 
 .pricing-option-secondary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  display: flex;
+  justify-content: flex-start;
   align-items: center;
   gap: 10px;
   margin-top: 2px;
-}
-
-#pricingOptimizeResults .pricing-line-item-main strong {
-  text-align: center;
-  justify-self: center;
-}
-
-#pricingOptimizeResults .pricing-line-item-main span {
-  color: var(--text);
-}
-
-.pricing-option-secondary > :last-child {
-  justify-self: center;
-}
-
-.pricing-option-secondary > :first-child {
-  justify-self: start;
 }
 
 #page-takeoff .card {
