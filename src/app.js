@@ -645,6 +645,8 @@ const state = {
   },
   vendorPlan: null,
   pricingSettingsLoadFailed: false,
+  activeSettingsVersionId: null,
+  activeSettingsBlobHash: null,
   suppliers: {
     columns: [],
     rows: [],
@@ -1552,7 +1554,7 @@ async function loadRemoteSharedSettings() {
   }
   const { data: versionRow, error: versionError } = await supabase
     .from("settings_versions")
-    .select("blob")
+    .select("blob, blob_hash")
     .eq("id", activeRow.active_settings_version_id)
     .single();
   if (versionError || !versionRow?.blob || typeof versionRow.blob !== "object") {
@@ -1563,6 +1565,8 @@ async function loadRemoteSharedSettings() {
   if (!applied) {
     return false;
   }
+  state.activeSettingsVersionId = activeRow.active_settings_version_id;
+  state.activeSettingsBlobHash = versionRow.blob_hash ? String(versionRow.blob_hash).trim() : null;
   writePricingBlobToLocalStorageCache(blob);
   return true;
 }
@@ -8280,7 +8284,10 @@ function buildProposalDataFromState(options = {}) {
       appVersion: "trojan-estimator-web",
       supabaseUrl: String(import.meta.env.VITE_SUPABASE_URL || "").trim(),
       supabaseAnonKey: String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim(),
+      settings_version_id: state.activeSettingsVersionId ?? null,
+      settings_blob_hash: state.activeSettingsBlobHash ?? null,
     },
+    milesFromTrojanFacility: state.milesFromTrojanFacility ?? "",
   };
 }
 

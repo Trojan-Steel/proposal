@@ -370,6 +370,16 @@
       });
     });
 
+    const proposal_inputs = {
+      deckLines: Array.isArray(snapshot.deckLines) ? snapshot.deckLines : [],
+      joistLines: Array.isArray(snapshot.joistLines) ? snapshot.joistLines : [],
+      accessories: Array.isArray(snapshot.accessoryLines) ? snapshot.accessoryLines : [],
+      miles: data?.milesFromTrojanFacility != null ? data.milesFromTrojanFacility : null,
+      selectedScenario: String(snapshot.selectedOptionName || "").trim() || null,
+      margins:
+        data?.margins != null && typeof data.margins === "object" && !Array.isArray(data.margins) ? data.margins : null,
+    };
+
     return {
       export_uuid: snapshot.export_uuid,
       header: {
@@ -386,6 +396,9 @@
       },
       snapshot_json: snapshot,
       line_items,
+      settings_version_id: exportMeta.settings_version_id ?? null,
+      settings_blob_hash: exportMeta.settings_blob_hash ?? null,
+      proposal_inputs,
     };
   }
 

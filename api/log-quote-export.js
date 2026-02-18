@@ -92,6 +92,10 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    const settingsVersionId = payload.settings_version_id;
+    const settingsBlobHash = payload.settings_blob_hash;
+    const proposalInputs = isPlainObject(payload.proposal_inputs) ? payload.proposal_inputs : null;
+
     const row = {
       export_uuid: exportUuid,
       project_name: normalizeText(header.project_name),
@@ -105,6 +109,9 @@ module.exports = async function handler(req, res) {
       joist_supplier: normalizeText(header.joist_supplier),
       app_version: normalizeText(header.app_version),
       snapshot_json: snapshotJson,
+      settings_version_id: typeof settingsVersionId === "string" && settingsVersionId.trim() ? settingsVersionId.trim() : null,
+      settings_blob_hash: typeof settingsBlobHash === "string" && settingsBlobHash.trim() ? normalizeText(settingsBlobHash) : null,
+      proposal_inputs: proposalInputs,
     };
 
     const { error } = await supabase.from("quote_exports").upsert(row, { onConflict: "export_uuid" });
