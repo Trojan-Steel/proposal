@@ -1540,26 +1540,72 @@ function writePricingBlobToLocalStorageCache(blob) {
   writeAdminStateToLocalStorage(payload);
 }
 
+function isRelationNotFoundError(err) {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = String(err.message || "").toLowerCase();
+  return code === "42P01" || (msg.includes("relation") && msg.includes("does not exist"));
+}
+
 async function loadRemoteSharedSettings() {
   if (!supabase) {
     return false;
   }
+
   const { data: activeRow, error: activeError } = await supabase
     .from("settings_active")
     .select("active_settings_version_id")
     .eq("id", SUPABASE_APP_SETTINGS_ID)
     .single();
+
   if (activeError || !activeRow?.active_settings_version_id) {
+    if (isRelationNotFoundError(activeError)) {
+      const { data: legacyRow, error: legacyError } = await supabase
+        .from(SUPABASE_APP_SETTINGS_TABLE)
+        .select("data")
+        .eq("id", SUPABASE_APP_SETTINGS_ID)
+        .single();
+
+      if (legacyError || !legacyRow?.data || typeof legacyRow.data !== "object") {
+        return false;
+      }
+      const blob = legacyRow.data.sharedSettingsBlob || legacyRow.data;
+      const applied = applySharedSettingsBlobToState(blob);
+      if (applied) {
+        writePricingBlobToLocalStorageCache(blob);
+        return true;
+      }
+    }
     return false;
   }
+
   const { data: versionRow, error: versionError } = await supabase
     .from("settings_versions")
     .select("blob, blob_hash")
     .eq("id", activeRow.active_settings_version_id)
     .single();
+
   if (versionError || !versionRow?.blob || typeof versionRow.blob !== "object") {
+    if (isRelationNotFoundError(versionError)) {
+      const { data: legacyRow, error: legacyError } = await supabase
+        .from(SUPABASE_APP_SETTINGS_TABLE)
+        .select("data")
+        .eq("id", SUPABASE_APP_SETTINGS_ID)
+        .single();
+
+      if (legacyError || !legacyRow?.data || typeof legacyRow.data !== "object") {
+        return false;
+      }
+      const blob = legacyRow.data.sharedSettingsBlob || legacyRow.data;
+      const applied = applySharedSettingsBlobToState(blob);
+      if (applied) {
+        writePricingBlobToLocalStorageCache(blob);
+        return true;
+      }
+    }
     return false;
   }
+
   const blob = versionRow.blob;
   const applied = applySharedSettingsBlobToState(blob);
   if (!applied) {
