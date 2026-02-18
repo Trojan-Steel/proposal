@@ -114,7 +114,7 @@
       .filter((cells) => cells.some((cell) => cell !== ""));
   }
 
-  function buildExportHeader(data) {
+  function buildExportPayload(data) {
     const exportMeta = data?.exportMeta && typeof data.exportMeta === "object" ? data.exportMeta : {};
     const deckRows = collectTableRows("DECK");
     const accessoryRows = collectTableRows("ACCESSORIES");
@@ -178,27 +178,27 @@
 
     return {
       export_uuid: snapshot.export_uuid,
-      project_name: snapshot.projectName,
-      project_location: snapshot.locationText,
-      selected_option_name: snapshot.selectedOptionName,
-      is_boost_on: snapshot.isBoostOn,
-      final_subtotal: snapshot.finalSubtotal,
-      total_margin_dollars: snapshot.totalMarginDollars,
-      total_margin_pct: snapshot.totalMarginPct,
-      deck_supplier: snapshot.deckSupplier,
-      joist_supplier: snapshot.joistSupplier,
-      app_version: snapshot.appVersion || "web-1",
+      header: {
+        project_name: snapshot.projectName,
+        project_location: snapshot.locationText,
+        selected_option_name: snapshot.selectedOptionName,
+        is_boost_on: snapshot.isBoostOn,
+        final_subtotal: snapshot.finalSubtotal,
+        total_margin_dollars: snapshot.totalMarginDollars,
+        total_margin_pct: snapshot.totalMarginPct,
+        deck_supplier: snapshot.deckSupplier,
+        joist_supplier: snapshot.joistSupplier,
+        app_version: snapshot.appVersion || "web-1",
+      },
       snapshot_json: snapshot,
     };
   }
 
-  async function logExportToSupabase(header) {
-    const response = await fetch("/api/quote-export-log", {
+  async function logExportToSupabase(payload) {
+    const response = await fetch("/proposal-api/log-quote-export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        header,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) {
       const text = (await response.text()).slice(0, 420);
@@ -797,7 +797,7 @@
       downloadButton.textContent = "Generating PDF...";
     }
     try {
-      const header = buildExportHeader(data);
+      const exportPayload = buildExportPayload(data);
       const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/api/proposal-render";
       const healthFallbackUrl = "/proposal-api/health";
@@ -838,14 +838,9 @@
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      logExportToSupabase(header)
-        .then((result) => {
-          const deckInserted = Number(result?.detail?.deck_rows_inserted || 0);
-          if (deckInserted > 0) {
-            showToast("Export logged", "success");
-            return;
-          }
-          showToast("Export logged (deck detail rows not inserted)", "error");
+      logExportToSupabase(exportPayload)
+        .then(() => {
+          showToast("Export logged", "success");
         })
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);

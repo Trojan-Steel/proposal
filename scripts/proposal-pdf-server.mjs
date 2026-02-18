@@ -1,6 +1,4 @@
 import dotenv from "dotenv";
-dotenv.config();
-
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
@@ -12,6 +10,8 @@ import { createClient } from "@supabase/supabase-js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+dotenv.config({ path: path.join(projectRoot, ".env.local") });
+dotenv.config({ path: path.join(projectRoot, ".env") });
 const host = process.env.PROPOSAL_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.PROPOSAL_PORT || process.env.PORT || "4174", 10);
 const ROUTES = [
@@ -21,6 +21,8 @@ const ROUTES = [
   "POST /render",
   "POST /proposal-api/proposal",
   "POST /proposal-api/render",
+  "POST /proposal-api/log-quote-export",
+  "POST /log-quote-export",
   "POST /proposal-api/test-export-log",
   "POST /test-export-log",
   "POST /api/proposal-pdf",
@@ -129,6 +131,15 @@ function getSupabaseServerClient() {
   return supabaseServerClient;
 }
 
+function toNumberOrZero(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
 async function runSupabaseTestExportInsert() {
   const supabase = getSupabaseServerClient();
   if (!supabase) {
@@ -181,6 +192,66 @@ async function runSupabaseTestExportInsert() {
     ok: true,
     status: 200,
     insertedId: row?.id || null,
+  };
+}
+
+async function runSupabaseQuoteExportInsert(payload) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server environment.",
+    };
+  }
+  const exportUuid = normalizeText(payload?.export_uuid);
+  const header = payload?.header && typeof payload.header === "object" ? payload.header : null;
+  const snapshotJson = payload?.snapshot_json && typeof payload.snapshot_json === "object" ? payload.snapshot_json : null;
+  if (!exportUuid || !header || !snapshotJson) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Missing required payload fields: export_uuid, header, snapshot_json.",
+    };
+  }
+  const row = {
+    export_uuid: exportUuid,
+    project_name: normalizeText(header.project_name),
+    project_location: normalizeText(header.project_location),
+    selected_option_name: normalizeText(header.selected_option_name),
+    is_boost_on: Boolean(header.is_boost_on),
+    final_subtotal: toNumberOrZero(header.final_subtotal),
+    total_margin_dollars: toNumberOrZero(header.total_margin_dollars),
+    total_margin_pct: toNumberOrZero(header.total_margin_pct),
+    deck_supplier: normalizeText(header.deck_supplier),
+    joist_supplier: normalizeText(header.joist_supplier),
+    app_version: normalizeText(header.app_version),
+    snapshot_json: snapshotJson,
+  };
+  const { data, error, status } = await supabase
+    .from("quote_exports")
+    .upsert(row, { onConflict: "export_uuid" })
+    .select("id")
+    .limit(1);
+  if (error) {
+    console.error("Supabase quote export insert failed", {
+      operation: "quote_exports.upsert",
+      status,
+      code: error.code || "",
+      message: error.message || "",
+      details: error.details || "",
+    });
+    return {
+      ok: false,
+      status: 500,
+      error: error.message || "Failed to insert quote export row.",
+    };
+  }
+  const inserted = Array.isArray(data) && data[0] ? data[0] : null;
+  return {
+    ok: true,
+    status: 200,
+    id: inserted?.id || null,
   };
 }
 
@@ -294,6 +365,16 @@ const server = http.createServer(async (req, res) => {
       const responseBody = result.ok
         ? { ok: true, insertedId: result.insertedId || null }
         : { ok: false, error: result.error || "Failed to insert test export row." };
+      sendJson(res, responseStatus, responseBody);
+      return;
+    }
+    if (req.method === "POST" && (requestUrl.pathname === "/log-quote-export" || requestUrl.pathname === "/proposal-api/log-quote-export")) {
+      const payload = await readRequestJson(req);
+      const result = await runSupabaseQuoteExportInsert(payload);
+      const responseStatus = result.status || (result.ok ? 200 : 500);
+      const responseBody = result.ok
+        ? { ok: true, id: result.id || null }
+        : { ok: false, error: result.error || "Failed to insert quote export row." };
       sendJson(res, responseStatus, responseBody);
       return;
     }
