@@ -644,6 +644,7 @@ const state = {
     joists: false,
   },
   vendorPlan: null,
+  pricingSettingsLoadFailed: false,
   suppliers: {
     columns: [],
     rows: [],
@@ -1107,6 +1108,27 @@ function setAdminStatus(message, options = {}) {
   }
 }
 
+function showPricingSettingsLoadFailedBanner() {
+  let el = document.getElementById("pricingSettingsLoadFailedBanner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "pricingSettingsLoadFailedBanner";
+    el.setAttribute("role", "alert");
+    el.style.cssText =
+      "background:#fef2f2;color:#b91c1c;padding:0.5rem 1rem;text-align:center;font-size:0.875rem;border-bottom:1px solid #fecaca;";
+    el.textContent = "Pricing settings failed to load.";
+    const header = document.querySelector(".global-header");
+    if (header && header.nextSibling) {
+      header.parentNode.insertBefore(el, header.nextSibling);
+    } else if (header) {
+      header.parentNode.appendChild(el);
+    } else {
+      document.body.insertBefore(el, document.body.firstChild);
+    }
+  }
+  el.style.display = "";
+}
+
 function getSupabaseSafeErrorMessage(error, fallback = "Unknown error") {
   const message = String(error?.message || "").trim();
   if (message) {
@@ -1502,32 +1524,47 @@ async function saveOutboundAddress(addressPayload = {}) {
   return { ok: true, savedAddress, status };
 }
 
+function writePricingBlobToLocalStorageCache(blob) {
+  if (!blob || typeof blob !== "object") {
+    return;
+  }
+  localStorage.setItem("trojan_pricing_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.trojanPricing] || {}));
+  localStorage.setItem("csc_pricing_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.cscPricing] || {}));
+  localStorage.setItem("cano_pricing_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.canoPricing] || {}));
+  localStorage.setItem("trojan_lead_times_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}));
+  localStorage.setItem("csc_lead_times_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}));
+  localStorage.setItem("cano_lead_times_v1", JSON.stringify(blob[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}));
+  const payload = buildAdminPricingPayloadFromState();
+  writeAdminStateToLocalStorage(payload);
+}
+
 async function loadRemoteSharedSettings() {
   if (!supabase) {
     return false;
   }
-  const { data, error } = await supabase
-    .from(SUPABASE_APP_SETTINGS_TABLE)
-    .select("data")
+  const { data: activeRow, error: activeError } = await supabase
+    .from("settings_active")
+    .select("active_settings_version_id")
     .eq("id", SUPABASE_APP_SETTINGS_ID)
     .single();
-  if (error || !data || typeof data.data !== "object" || !data.data) {
+  if (activeError || !activeRow?.active_settings_version_id) {
     return false;
   }
-  const blob = data.data?.sharedSettingsBlob && typeof data.data.sharedSettingsBlob === "object" ? data.data.sharedSettingsBlob : data.data;
-const applied = applySharedSettingsBlobToState(blob);
-
-  if (applied) {
-    localStorage.setItem("trojan_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.trojanPricing] || {}));
-    localStorage.setItem("csc_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.cscPricing] || {}));
-    localStorage.setItem("cano_pricing_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.canoPricing] || {}));
-    localStorage.setItem("trojan_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.trojanLeadTimes] || {}));
-    localStorage.setItem("csc_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.cscLeadTimes] || {}));
-    localStorage.setItem("cano_lead_times_v1", JSON.stringify(data.data[SHARED_SETTINGS_KEYS.canoLeadTimes] || {}));
-    const payload = buildAdminPricingPayloadFromState();
-    writeAdminStateToLocalStorage(payload);
+  const { data: versionRow, error: versionError } = await supabase
+    .from("settings_versions")
+    .select("blob")
+    .eq("id", activeRow.active_settings_version_id)
+    .single();
+  if (versionError || !versionRow?.blob || typeof versionRow.blob !== "object") {
+    return false;
   }
-  return applied;
+  const blob = versionRow.blob;
+  const applied = applySharedSettingsBlobToState(blob);
+  if (!applied) {
+    return false;
+  }
+  writePricingBlobToLocalStorageCache(blob);
+  return true;
 }
 
 function saveAdminState(options = {}) {
@@ -1548,25 +1585,6 @@ function saveAdminState(options = {}) {
 
 function loadAdminState() {
   state.admin = createDefaultAdminState();
-
-  const pricingRaw = localStorage.getItem(ADMIN_PRICING_STORAGE_KEY);
-  if (pricingRaw) {
-    try {
-      const parsed = JSON.parse(pricingRaw);
-      applyAdminPricingPayloadToState(parsed);
-    } catch (_error) {
-      // Ignore malformed local storage payload and keep defaults.
-    }
-  }
-  const sharedSettingsBlob = {
-    [SHARED_SETTINGS_KEYS.trojanPricing]: parseStoredJsonObject("trojan_pricing_v1"),
-    [SHARED_SETTINGS_KEYS.cscPricing]: parseStoredJsonObject("csc_pricing_v1"),
-    [SHARED_SETTINGS_KEYS.canoPricing]: parseStoredJsonObject("cano_pricing_v1"),
-    [SHARED_SETTINGS_KEYS.trojanLeadTimes]: parseStoredJsonObject("trojan_lead_times_v1"),
-    [SHARED_SETTINGS_KEYS.cscLeadTimes]: parseStoredJsonObject("csc_lead_times_v1"),
-    [SHARED_SETTINGS_KEYS.canoLeadTimes]: parseStoredJsonObject("cano_lead_times_v1"),
-  };
-  applySharedSettingsBlobToState(sharedSettingsBlob);
 
   const detailingRowsRaw = localStorage.getItem(ADMIN_DETAILING_BUCKETS_STORAGE_KEY);
   if (detailingRowsRaw) {
@@ -10484,10 +10502,15 @@ async function init() {
     takeoffProjectLocationInput.value = state.takeoff.projectLocation || "";
   }
   loadAdminState();
+  let pricingLoaded = false;
   try {
-    await loadRemoteSharedSettings();
+    pricingLoaded = await loadRemoteSharedSettings();
   } catch (_error) {
-    // Fall back to local storage settings when Supabase read fails.
+    // Supabase fetch failed; leave pricing as defaults.
+  }
+  if (!pricingLoaded) {
+    state.pricingSettingsLoadFailed = true;
+    showPricingSettingsLoadFailedBanner();
   }
 
   updateProjectHeader();
