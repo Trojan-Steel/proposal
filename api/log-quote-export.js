@@ -39,6 +39,10 @@ function toNumberOrZero(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
 }
+function toNumberOrNull(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
 function toArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -69,6 +73,10 @@ module.exports = async function handler(req, res) {
 
   try {
     const payload = await readRequestJson(req);
+    console.log(
+      "[EXPORT DEBUG][SERVER] first deck line item:",
+      toArray(payload?.line_items).find((item) => isPlainObject(item) && item.item_type === "deck") || null,
+    );
     const exportUuid = normalizeText(payload?.export_uuid);
     const header = isPlainObject(payload?.header) ? payload.header : null;
     const snapshotJson = isPlainObject(payload?.snapshot_json) ? payload.snapshot_json : null;
@@ -133,33 +141,33 @@ module.exports = async function handler(req, res) {
           line_no: Number.isFinite(Number(li.line_no)) ? Number(li.line_no) : idx + 1,
           item_type: normalizeText(li.item_type),
           description: normalizeText(li.description),
-          quantity: li.quantity ?? null,
+          quantity: toNumberOrNull(li.quantity),
           uom: normalizeText(li.uom),
-          weight_lbs: li.weight_lbs ?? null,
-          tons: li.tons ?? null,
-          unit_price: li.unit_price ?? null,
-          extended_price: li.extended_price ?? null,
-          unit_cost: li.unit_cost ?? null,
-          extended_cost: li.extended_cost ?? null,
-          margin: li.margin ?? null,
-          margin_pct: li.margin_pct ?? null,
+          weight_lbs: toNumberOrNull(li.weight_lbs),
+          tons: toNumberOrNull(li.tons),
+          unit_price: toNumberOrNull(li.unit_price),
+          extended_price: toNumberOrNull(li.extended_price),
+          unit_cost: toNumberOrNull(li.unit_cost),
+          extended_cost: toNumberOrNull(li.extended_cost),
+          margin: toNumberOrNull(li.margin),
+          margin_pct: toNumberOrNull(li.margin_pct),
           supplier_key: normalizeText(li.supplier_key),
           deck_profile: normalizeText(li.deck_profile),
-          deck_depth_in: li.deck_depth_in ?? null,
-          deck_width_in: li.deck_width_in ?? null,
+          deck_depth_in: toNumberOrNull(li.deck_depth_in),
+          deck_width_in: toNumberOrNull(li.deck_width_in),
           deck_gauge: normalizeText(li.deck_gauge),
           deck_finish: normalizeText(li.deck_finish),
           deck_paint: normalizeText(li.deck_paint),
-          deck_grade: normalizeText(li.deck_grade),
+          deck_grade: toNumberOrNull(li.deck_grade),
           deck_measure_method: normalizeText(li.deck_measure_method),
           deck_sqs_count: Number.isFinite(Number(li.deck_sqs_count)) ? Number(li.deck_sqs_count) : null,
           joist_series: normalizeText(li.joist_series),
           joist_mark: normalizeText(li.joist_mark),
-          joist_length_ft: li.joist_length_ft ?? null,
+          joist_length_ft: toNumberOrNull(li.joist_length_ft),
           joist_qty: Number.isFinite(Number(li.joist_qty)) ? Number(li.joist_qty) : null,
           accessory_type: normalizeText(li.accessory_type),
           accessory_spec: normalizeText(li.accessory_spec),
-          accessory_qty: li.accessory_qty ?? null,
+          accessory_qty: toNumberOrNull(li.accessory_qty),
           spec_json: isPlainObject(li.spec_json) ? li.spec_json : {},
         }));
 
