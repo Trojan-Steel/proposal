@@ -199,7 +199,7 @@
       }),
     });
     if (!response.ok) {
-      const text = (await response.text()).slice(0, 280);
+      const text = (await response.text()).slice(0, 420);
       throw new Error(`status ${response.status}: ${text}`);
     }
     return response.json().catch(() => ({ ok: true }));
@@ -841,11 +841,12 @@
           showToast("Export logged", "success");
         })
         .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
           console.error("Export logging failed", {
             operation: "quote_export_log",
-            message: error instanceof Error ? error.message : String(error),
+            message,
           });
-          showToast("Export logging failed", "error");
+          showToast(`Export logging failed: ${message.slice(0, 110)}`, "error");
         });
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);

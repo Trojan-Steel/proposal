@@ -42,7 +42,7 @@ function normalizeText(value) {
 
 function getSupabaseServerClient() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
   if (!url || !serviceRoleKey) {
     return null;
   }
@@ -83,7 +83,6 @@ module.exports = async function handler(req, res) {
 
     const row = {
       export_uuid: exportUuid,
-      quote_ref: normalizeText(snapshot.quoteRef),
       project_name: normalizeText(header.project_name),
       project_location: normalizeText(header.project_location),
       selected_option_name: normalizeText(header.selected_option_name),
@@ -97,11 +96,18 @@ module.exports = async function handler(req, res) {
       snapshot_json: snapshot,
     };
 
-    const { data: exportRows, error: exportError, status: exportStatus } = await supabase
-      .from("quote_exports")
-      .insert([row])
-      .select("id")
-      .limit(1);
+    let insertResult = await supabase.from("quote_exports").insert([row]).select("id").limit(1);
+    let { data: exportRows, error: exportError, status: exportStatus } = insertResult;
+
+    // Schema-tolerant fallback in case optional columns are missing in production.
+    if (exportError && /project_location|column/i.test(String(exportError.message || ""))) {
+      const fallbackRow = { ...row };
+      delete fallbackRow.project_location;
+      insertResult = await supabase.from("quote_exports").insert([fallbackRow]).select("id").limit(1);
+      exportRows = insertResult.data;
+      exportError = insertResult.error;
+      exportStatus = insertResult.status;
+    }
 
     if (exportError) {
       if (String(exportError.code || "") === "23505") {
@@ -114,7 +120,7 @@ module.exports = async function handler(req, res) {
         message: exportError.message || "",
         details: exportError.details || "",
       });
-      return res.status(500).json({ ok: false, error: "Failed to write export row." });
+      return res.status(500).json({ ok: false, error: `Failed to write export row (${exportError.code || "unknown"}).` });
     }
 
     const exportId = Array.isArray(exportRows) && exportRows[0] ? exportRows[0].id : null;
