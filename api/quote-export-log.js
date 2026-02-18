@@ -40,6 +40,32 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function isMissingSchemaError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return code === "42P01" || code === "42703" || /does not exist|column/i.test(message);
+}
+
+async function insertDetailRows(supabase, tableName, rows, operationLabel) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: true, skipped: true };
+  }
+  const { error } = await supabase.from(tableName).insert(rows);
+  if (!error) {
+    return { ok: true };
+  }
+  if (isMissingSchemaError(error)) {
+    console.warn("quote-export-log: detail table missing, skipped", {
+      operation: operationLabel,
+      table: tableName,
+      code: error.code || "",
+      message: error.message || "",
+    });
+    return { ok: true, skipped: true };
+  }
+  return { ok: false, error };
+}
+
 function getSupabaseServerClient() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -126,6 +152,77 @@ module.exports = async function handler(req, res) {
     const exportId = Array.isArray(exportRows) && exportRows[0] ? exportRows[0].id : null;
     if (!exportId) {
       return res.status(500).json({ ok: false, error: "Failed to resolve export row id." });
+    }
+
+    const deckLines = Array.isArray(snapshot.deckLines) ? snapshot.deckLines : [];
+    const joistLines = Array.isArray(snapshot.joistLines) ? snapshot.joistLines : [];
+    const pricingLines = Array.isArray(snapshot.pricingLines) ? snapshot.pricingLines : [];
+
+    const deckPayload = deckLines.map((line, index) => ({
+      export_id: exportId,
+      row_index: index,
+      line_type: normalizeText(line.type),
+      manufacturer: normalizeText(line.manufacturer),
+      sqs: toNumberOrZero(line.sqs),
+      tons: toNumberOrZero(line.tons),
+      units: toNumberOrZero(line.units),
+      raw_json: line,
+    }));
+    const joistPayload = joistLines.map((line, index) => ({
+      export_id: exportId,
+      row_index: index,
+      description: normalizeText(line.description),
+      manufacturer: normalizeText(line.manufacturer),
+      units: toNumberOrZero(line.units),
+      tons: toNumberOrZero(line.tons),
+      raw_json: line,
+    }));
+    const pricingPayload = pricingLines.map((line, index) => ({
+      export_id: exportId,
+      row_index: index,
+      label: normalizeText(line.label),
+      amount: toNumberOrZero(line.amount),
+      raw_json: line,
+    }));
+
+    const deckInsert = await insertDetailRows(
+      supabase,
+      "quote_export_deck_lines",
+      deckPayload,
+      "quote_export_deck_lines.insert",
+    );
+    if (!deckInsert.ok) {
+      console.error("quote-export-log: deck detail insert failed", {
+        operation: "quote_export_deck_lines.insert",
+        code: deckInsert.error.code || "",
+        message: deckInsert.error.message || "",
+      });
+    }
+    const joistInsert = await insertDetailRows(
+      supabase,
+      "quote_export_joist_lines",
+      joistPayload,
+      "quote_export_joist_lines.insert",
+    );
+    if (!joistInsert.ok) {
+      console.error("quote-export-log: joist detail insert failed", {
+        operation: "quote_export_joist_lines.insert",
+        code: joistInsert.error.code || "",
+        message: joistInsert.error.message || "",
+      });
+    }
+    const pricingInsert = await insertDetailRows(
+      supabase,
+      "quote_export_pricing_lines",
+      pricingPayload,
+      "quote_export_pricing_lines.insert",
+    );
+    if (!pricingInsert.ok) {
+      console.error("quote-export-log: pricing detail insert failed", {
+        operation: "quote_export_pricing_lines.insert",
+        code: pricingInsert.error.code || "",
+        message: pricingInsert.error.message || "",
+      });
     }
 
     return res.status(200).json({ ok: true, export_id: exportId, export_uuid: exportUuid });

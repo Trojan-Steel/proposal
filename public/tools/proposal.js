@@ -152,20 +152,22 @@
         cutListProvided: String(data?.cutListProvided || "").trim(),
         specsReviewed: String(data?.specsReviewed || "").trim(),
       },
-      deckLines: deckRows.map((cells) => ({
-        type: cells[0] || "",
-        sqs: parseCurrencyText(cells[1]),
-        tons: parseCurrencyText(cells[2]),
+      deckLines: (Array.isArray(data?.deckLines) ? data.deckLines : []).map((line, index) => ({
+        type: String(line?.type || deckRows[index]?.[0] || "").trim(),
+        manufacturer: String(line?.manufacturer || "").trim(),
+        sqs: toNumber(line?.sqs) || parseCurrencyText(deckRows[index]?.[1]),
+        tons: toNumber(line?.tons) || parseCurrencyText(deckRows[index]?.[2]),
       })),
       accessoryLines: accessoryRows.map((cells) => ({
         type: cells[0] || "",
         screwCount: parseCurrencyText(cells[1]),
         tons: parseCurrencyText(cells[2]),
       })),
-      joistLines: joistRows.map((cells) => ({
-        description: cells[0] || "",
-        units: parseCurrencyText(cells[1]),
-        tons: parseCurrencyText(cells[2]),
+      joistLines: (Array.isArray(data?.joistLines) ? data.joistLines : []).map((line, index) => ({
+        description: String(line?.description || joistRows[index]?.[0] || "").trim(),
+        manufacturer: String(line?.manufacturer || "").trim(),
+        units: toNumber(line?.units) || parseCurrencyText(joistRows[index]?.[1]),
+        tons: toNumber(line?.tons) || parseCurrencyText(joistRows[index]?.[2]),
       })),
       pricingLines: [
         { label: "TOTAL PROJECT PRICE", amount: finalSubtotal },
