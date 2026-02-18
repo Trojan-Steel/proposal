@@ -119,11 +119,13 @@
       return {
         healthUrl: "/proposal-api/health",
         proposalApiUrl: "/proposal-api/proposal",
+        logQuoteExportUrl: "/proposal-api/log-quote-export",
       };
     }
     return {
       healthUrl: "/api/proposal-health",
       proposalApiUrl: "/api/proposal-render",
+      logQuoteExportUrl: "/api/log-quote-export",
     };
   }
 
@@ -221,8 +223,8 @@
     };
   }
 
-  async function logExportToSupabase(payload) {
-    const response = await fetch("/proposal-api/log-quote-export", {
+  async function logExportToSupabase(payload, logQuoteExportUrl) {
+    const response = await fetch(logQuoteExportUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -879,7 +881,7 @@
     }
     try {
       const exportPayload = buildExportPayload(data);
-      const { healthUrl, proposalApiUrl } = getProposalEndpoints();
+      const { healthUrl, proposalApiUrl, logQuoteExportUrl } = getProposalEndpoints();
       const healthResponse = await fetch(healthUrl);
       if (!healthResponse.ok) {
         const text = (await healthResponse.text()).slice(0, 200);
@@ -909,7 +911,7 @@
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       try {
-        const result = await logExportToSupabase(exportPayload);
+        const result = await logExportToSupabase(exportPayload, logQuoteExportUrl);
         const exportId = String(result?.id || "").trim();
         if (!exportId) {
           throw new Error("Quote export row id not returned.");
