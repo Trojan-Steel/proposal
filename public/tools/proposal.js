@@ -114,7 +114,7 @@
       .filter((cells) => cells.some((cell) => cell !== ""));
   }
 
-  function buildExportSnapshot(data) {
+  function buildExportHeader(data) {
     const exportMeta = data?.exportMeta && typeof data.exportMeta === "object" ? data.exportMeta : {};
     const deckRows = collectTableRows("DECK");
     const accessoryRows = collectTableRows("ACCESSORIES");
@@ -174,16 +174,28 @@
       proposalData: data,
     };
 
-    return snapshot;
+    return {
+      export_uuid: snapshot.export_uuid,
+      project_name: snapshot.projectName,
+      project_location: snapshot.locationText,
+      selected_option_name: snapshot.selectedOptionName,
+      is_boost_on: snapshot.isBoostOn,
+      final_subtotal: snapshot.finalSubtotal,
+      total_margin_dollars: snapshot.totalMarginDollars,
+      total_margin_pct: snapshot.totalMarginPct,
+      deck_supplier: snapshot.deckSupplier,
+      joist_supplier: snapshot.joistSupplier,
+      app_version: snapshot.appVersion || "web-1",
+      snapshot_json: snapshot,
+    };
   }
 
-  async function logExportToSupabase(snapshot) {
+  async function logExportToSupabase(header) {
     const response = await fetch("/api/quote-export-log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        export_uuid: snapshot.export_uuid,
-        snapshot,
+        header,
       }),
     });
     if (!response.ok) {
@@ -783,7 +795,7 @@
       downloadButton.textContent = "Generating PDF...";
     }
     try {
-      const snapshot = buildExportSnapshot(data);
+      const header = buildExportHeader(data);
       const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/api/proposal-render";
       const healthFallbackUrl = "/proposal-api/health";
@@ -824,7 +836,7 @@
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      logExportToSupabase(snapshot)
+      logExportToSupabase(header)
         .then(() => {
           showToast("Export logged", "success");
         })

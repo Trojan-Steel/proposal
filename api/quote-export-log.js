@@ -66,10 +66,11 @@ module.exports = async function handler(req, res) {
 
   try {
     const payload = await readRequestJson(req);
-    const snapshot = isPlainObject(payload?.snapshot) ? payload.snapshot : null;
-    const exportUuid = normalizeText(payload?.export_uuid || snapshot?.export_uuid);
-    if (!snapshot || !exportUuid) {
-      return res.status(400).json({ ok: false, error: "Missing snapshot/export_uuid." });
+    const header = isPlainObject(payload?.header) ? payload.header : null;
+    const snapshot = isPlainObject(header?.snapshot_json) ? header.snapshot_json : null;
+    const exportUuid = normalizeText(header?.export_uuid);
+    if (!header || !snapshot || !exportUuid) {
+      return res.status(400).json({ ok: false, error: "Missing header payload or export_uuid." });
     }
 
     const supabase = getSupabaseServerClient();
@@ -83,27 +84,31 @@ module.exports = async function handler(req, res) {
     const row = {
       export_uuid: exportUuid,
       quote_ref: normalizeText(snapshot.quoteRef),
-      project_name: normalizeText(snapshot.projectName),
-      selected_option_name: normalizeText(snapshot.selectedOptionName),
-      is_boost_on: Boolean(snapshot.isBoostOn),
-      final_subtotal: toNumberOrZero(snapshot.finalSubtotal),
-      total_margin_dollars: toNumberOrZero(snapshot.totalMarginDollars),
-      total_margin_pct: toNumberOrZero(snapshot.totalMarginPct),
-      deck_supplier: normalizeText(snapshot.deckSupplier),
-      joist_supplier: normalizeText(snapshot.joistSupplier),
-      app_version: normalizeText(snapshot.appVersion || "trojan-estimator-web"),
+      project_name: normalizeText(header.project_name),
+      project_location: normalizeText(header.project_location),
+      selected_option_name: normalizeText(header.selected_option_name),
+      is_boost_on: Boolean(header.is_boost_on),
+      final_subtotal: toNumberOrZero(header.final_subtotal),
+      total_margin_dollars: toNumberOrZero(header.total_margin_dollars),
+      total_margin_pct: toNumberOrZero(header.total_margin_pct),
+      deck_supplier: normalizeText(header.deck_supplier),
+      joist_supplier: normalizeText(header.joist_supplier),
+      app_version: normalizeText(header.app_version || "web-1"),
       snapshot_json: snapshot,
     };
 
     const { data: exportRows, error: exportError, status: exportStatus } = await supabase
       .from("quote_exports")
-      .upsert(row, { onConflict: "export_uuid" })
+      .insert([row])
       .select("id")
       .limit(1);
 
     if (exportError) {
+      if (String(exportError.code || "") === "23505") {
+        return res.status(200).json({ ok: true, duplicate: true, export_uuid: exportUuid });
+      }
       console.error("quote-export-log: export upsert failed", {
-        operation: "quote_exports.upsert",
+        operation: "quote_exports.insert",
         status: exportStatus,
         code: exportError.code || "",
         message: exportError.message || "",
@@ -115,73 +120,6 @@ module.exports = async function handler(req, res) {
     const exportId = Array.isArray(exportRows) && exportRows[0] ? exportRows[0].id : null;
     if (!exportId) {
       return res.status(500).json({ ok: false, error: "Failed to resolve export row id." });
-    }
-
-    const deckLines = Array.isArray(snapshot.deckLines) ? snapshot.deckLines : [];
-    const joistLines = Array.isArray(snapshot.joistLines) ? snapshot.joistLines : [];
-    const pricingLines = Array.isArray(snapshot.pricingLines) ? snapshot.pricingLines : [];
-
-    await supabase.from("quote_export_deck_lines").delete().eq("export_id", exportId);
-    await supabase.from("quote_export_joist_lines").delete().eq("export_id", exportId);
-    await supabase.from("quote_export_pricing_lines").delete().eq("export_id", exportId);
-
-    if (deckLines.length) {
-      const deckPayload = deckLines.map((line, index) => ({
-        export_id: exportId,
-        row_index: index,
-        line_type: normalizeText(line.type),
-        manufacturer: normalizeText(line.manufacturer),
-        sqs: toNumberOrZero(line.sqs),
-        tons: toNumberOrZero(line.tons),
-        units: toNumberOrZero(line.units),
-        raw_json: line,
-      }));
-      const { error } = await supabase.from("quote_export_deck_lines").insert(deckPayload);
-      if (error) {
-        console.error("quote-export-log: deck lines insert failed", {
-          operation: "quote_export_deck_lines.insert",
-          code: error.code || "",
-          message: error.message || "",
-        });
-      }
-    }
-
-    if (joistLines.length) {
-      const joistPayload = joistLines.map((line, index) => ({
-        export_id: exportId,
-        row_index: index,
-        description: normalizeText(line.description),
-        manufacturer: normalizeText(line.manufacturer),
-        units: toNumberOrZero(line.units),
-        tons: toNumberOrZero(line.tons),
-        raw_json: line,
-      }));
-      const { error } = await supabase.from("quote_export_joist_lines").insert(joistPayload);
-      if (error) {
-        console.error("quote-export-log: joist lines insert failed", {
-          operation: "quote_export_joist_lines.insert",
-          code: error.code || "",
-          message: error.message || "",
-        });
-      }
-    }
-
-    if (pricingLines.length) {
-      const pricingPayload = pricingLines.map((line, index) => ({
-        export_id: exportId,
-        row_index: index,
-        label: normalizeText(line.label),
-        amount: toNumberOrZero(line.amount),
-        raw_json: line,
-      }));
-      const { error } = await supabase.from("quote_export_pricing_lines").insert(pricingPayload);
-      if (error) {
-        console.error("quote-export-log: pricing lines insert failed", {
-          operation: "quote_export_pricing_lines.insert",
-          code: error.code || "",
-          message: error.message || "",
-        });
-      }
     }
 
     return res.status(200).json({ ok: true, export_id: exportId, export_uuid: exportUuid });
