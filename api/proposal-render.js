@@ -4,7 +4,8 @@ const { createClient } = require("@supabase/supabase-js");
 
 const MAX_BODY_BYTES = 2_000_000;
 const LOAD_TIMEOUT_MS = 45_000;
-const SELECTOR_WAIT_MS = 60_000;
+const PROPOSAL_WAIT_MS = 60_000;
+const RENDER_TIMEOUT_MS = 75_000;
 
 function sanitizeFilenamePart(value, fallback = "proposal") {
   const cleaned = String(value || "")
@@ -125,23 +126,27 @@ module.exports = async function handler(req, res) {
 
   let browser;
   let page;
-  try {
-    const payload = await readRequestJson(req);
-    const proposalData = payload && isPlainObject(payload.proposalData) ? payload.proposalData : null;
-    const exportUuid = String(payload?.export_uuid || "").trim();
-    const projectNameForStorage = String(payload?.project_name || proposalData?.projectName || "").trim();
-    if (!proposalData) {
-      return res.status(400).json({
-        error: "Missing proposalData object in request body.",
-        expected: { proposalData: { projectName: "Example Project", quoteRef: "TROJ0001" } },
-      });
-    }
+  const payload = await readRequestJson(req);
+  const proposalData = payload && isPlainObject(payload.proposalData) ? payload.proposalData : null;
+  const exportUuid = String(payload?.export_uuid || "").trim();
+  const projectNameForStorage = String(payload?.project_name || proposalData?.projectName || "").trim();
+  if (!proposalData) {
+    return res.status(400).json({
+      error: "Missing proposalData object in request body.",
+      expected: { proposalData: { projectName: "Example Project", quoteRef: "TROJ0001" } },
+    });
+  }
 
-    const baseUrl = resolveBaseUrl(req);
-    if (!baseUrl) {
-      return res.status(400).json({ error: "Unable to resolve host for proposal rendering." });
-    }
+  const baseUrl = resolveBaseUrl(req);
+  if (!baseUrl) {
+    return res.status(400).json({ error: "Unable to resolve host for proposal rendering." });
+  }
 
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("PDF_RENDER_TIMEOUT")), RENDER_TIMEOUT_MS);
+  });
+
+  const renderPromise = (async () => {
     browser = await launchBrowser();
     page = await browser.newPage();
     page.setDefaultNavigationTimeout(LOAD_TIMEOUT_MS);
@@ -162,12 +167,18 @@ module.exports = async function handler(req, res) {
     }, proposalData);
 
     const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
-    await page.goto(targetUrl, { waitUntil: "networkidle0" });
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
 
-    await page.waitForFunction(
-      () => window.__PROPOSAL_READY__ === true,
-      { timeout: 60000 },
-    );
+    await Promise.race([
+      page.waitForFunction(
+        () => window.__PROPOSAL_READY__ === true,
+        { timeout: PROPOSAL_WAIT_MS },
+      ),
+      page.waitForFunction(
+        () => !!document.querySelector(".proposal-page"),
+        { timeout: PROPOSAL_WAIT_MS },
+      ),
+    ]);
     await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
     await new Promise((r) => setTimeout(r, 250));
 
@@ -292,12 +303,20 @@ module.exports = async function handler(req, res) {
       "quote",
     )}.pdf`;
 
+    return { pdfBuffer, filename };
+  })();
+
+  try {
+    const result = await Promise.race([renderPromise, timeoutPromise]);
     res.status(200);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
     res.setHeader("Cache-Control", "no-store");
-    return res.send(Buffer.from(pdfBuffer));
+    return res.send(Buffer.from(result.pdfBuffer));
   } catch (error) {
+    if (error instanceof Error && error.message === "PDF_RENDER_TIMEOUT") {
+      return res.status(504).json({ error: "PDF render timed out" });
+    }
     const message = error instanceof Error ? error.message : String(error);
     console.error("proposal-render failed", {
       message,
