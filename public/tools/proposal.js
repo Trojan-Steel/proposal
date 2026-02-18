@@ -839,8 +839,13 @@
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       logExportToSupabase(header)
-        .then(() => {
-          showToast("Export logged", "success");
+        .then((result) => {
+          const deckInserted = Number(result?.detail?.deck_rows_inserted || 0);
+          if (deckInserted > 0) {
+            showToast("Export logged", "success");
+            return;
+          }
+          showToast("Export logged (deck detail rows not inserted)", "error");
         })
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);

@@ -48,11 +48,11 @@ function isMissingSchemaError(error) {
 
 async function insertDetailRows(supabase, tableName, rows, operationLabel) {
   if (!Array.isArray(rows) || rows.length === 0) {
-    return { ok: true, skipped: true };
+    return { ok: true, skipped: true, inserted: 0 };
   }
   const { error } = await supabase.from(tableName).insert(rows);
   if (!error) {
-    return { ok: true };
+    return { ok: true, inserted: rows.length };
   }
   if (isMissingSchemaError(error)) {
     console.warn("quote-export-log: detail table missing, skipped", {
@@ -61,9 +61,9 @@ async function insertDetailRows(supabase, tableName, rows, operationLabel) {
       code: error.code || "",
       message: error.message || "",
     });
-    return { ok: true, skipped: true };
+    return { ok: true, skipped: true, inserted: 0 };
   }
-  return { ok: false, error };
+  return { ok: false, error, inserted: 0 };
 }
 
 function getSupabaseServerClient() {
@@ -154,8 +154,18 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ ok: false, error: "Failed to resolve export row id." });
     }
 
-    const deckLines = Array.isArray(snapshot.deckLines) ? snapshot.deckLines : [];
-    const joistLines = Array.isArray(snapshot.joistLines) ? snapshot.joistLines : [];
+    const deckLines =
+      Array.isArray(snapshot.deckLines) && snapshot.deckLines.length > 0
+        ? snapshot.deckLines
+        : Array.isArray(snapshot?.proposalData?.deckLines)
+          ? snapshot.proposalData.deckLines
+          : [];
+    const joistLines =
+      Array.isArray(snapshot.joistLines) && snapshot.joistLines.length > 0
+        ? snapshot.joistLines
+        : Array.isArray(snapshot?.proposalData?.joistLines)
+          ? snapshot.proposalData.joistLines
+          : [];
     const pricingLines = Array.isArray(snapshot.pricingLines) ? snapshot.pricingLines : [];
 
     const deckPayload = deckLines.map((line, index) => ({
@@ -225,7 +235,19 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ ok: true, export_id: exportId, export_uuid: exportUuid });
+    return res.status(200).json({
+      ok: true,
+      export_id: exportId,
+      export_uuid: exportUuid,
+      detail: {
+        deck_rows_requested: deckPayload.length,
+        joist_rows_requested: joistPayload.length,
+        pricing_rows_requested: pricingPayload.length,
+        deck_rows_inserted: deckInsert.inserted || 0,
+        joist_rows_inserted: joistInsert.inserted || 0,
+        pricing_rows_inserted: pricingInsert.inserted || 0,
+      },
+    });
   } catch (error) {
     console.error("quote-export-log failed", {
       message: error instanceof Error ? error.message : String(error),
