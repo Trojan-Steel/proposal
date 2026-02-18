@@ -205,6 +205,78 @@
       proposalData: data,
     };
 
+    let lineNo = 1;
+    const line_items = [];
+    snapshot.deckLines.forEach((line) => {
+      const sqsValue = Number(line?.sqs);
+      line_items.push({
+        export_uuid: snapshot.export_uuid,
+        line_no: lineNo++,
+        item_type: "deck",
+        description: String(line?.type || "").trim(),
+        quantity: toNumber(line?.tons),
+        uom: "TON",
+        weight_lbs: null,
+        tons: toNumber(line?.tons),
+        unit_price: null,
+        extended_price: null,
+        unit_cost: null,
+        extended_cost: null,
+        margin: null,
+        margin_pct: null,
+        supplier_key: String(line?.manufacturer || "").trim(),
+        deck_profile: String(line?.type || "").trim(),
+        deck_sqs_count: Number.isFinite(sqsValue) ? Math.round(sqsValue) : null,
+        spec_json: line,
+      });
+    });
+    snapshot.joistLines.forEach((line) => {
+      line_items.push({
+        export_uuid: snapshot.export_uuid,
+        line_no: lineNo++,
+        item_type: "joist",
+        description: String(line?.description || "").trim(),
+        quantity: toNumber(line?.tons),
+        uom: "TON",
+        weight_lbs: null,
+        tons: toNumber(line?.tons),
+        unit_price: null,
+        extended_price: null,
+        unit_cost: null,
+        extended_cost: null,
+        margin: null,
+        margin_pct: null,
+        supplier_key: String(line?.manufacturer || "").trim(),
+        joist_series: "",
+        joist_qty: toNumber(line?.units),
+        spec_json: line,
+      });
+    });
+    snapshot.accessoryLines.forEach((line) => {
+      const screwCount = Number(line?.screwCount);
+      const accessoryQty = Number.isFinite(screwCount) && screwCount > 0 ? screwCount : toNumber(line?.tons);
+      line_items.push({
+        export_uuid: snapshot.export_uuid,
+        line_no: lineNo++,
+        item_type: "accessory",
+        description: String(line?.type || "").trim(),
+        quantity: accessoryQty,
+        uom: "EA",
+        weight_lbs: null,
+        tons: toNumber(line?.tons),
+        unit_price: null,
+        extended_price: null,
+        unit_cost: null,
+        extended_cost: null,
+        margin: null,
+        margin_pct: null,
+        supplier_key: "",
+        accessory_type: String(line?.type || "").trim(),
+        accessory_qty: accessoryQty,
+        spec_json: line,
+      });
+    });
+
     return {
       export_uuid: snapshot.export_uuid,
       header: {
@@ -220,6 +292,7 @@
         app_version: snapshot.appVersion || "web-1",
       },
       snapshot_json: snapshot,
+      line_items,
     };
   }
 
