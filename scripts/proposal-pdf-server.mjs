@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
+import { createClient } from "@supabase/supabase-js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +18,8 @@ const ROUTES = [
   "POST /render",
   "POST /proposal-api/proposal",
   "POST /proposal-api/render",
+  "POST /proposal-api/test-export-log",
+  "POST /test-export-log",
   "POST /api/proposal-pdf",
   "POST /api/proposal-render",
 ];
@@ -104,6 +108,71 @@ async function readRequestJson(req) {
   }
   const raw = Buffer.concat(chunks).toString("utf8");
   return raw ? JSON.parse(raw) : {};
+}
+
+let supabaseServerClient = null;
+function getSupabaseServerClient() {
+  if (supabaseServerClient) {
+    return supabaseServerClient;
+  }
+  const url = process.env.SUPABASE_URL || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  if (!url || !serviceRoleKey) {
+    return null;
+  }
+  supabaseServerClient = createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return supabaseServerClient;
+}
+
+async function runSupabaseTestExportInsert() {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server environment.",
+    };
+  }
+  const exportUuid = crypto.randomUUID();
+  const payload = {
+    export_uuid: exportUuid,
+    project_name: "TEST FROM CODEX",
+    final_subtotal: 12345,
+    total_margin_dollars: 1000,
+    total_margin_pct: 8.1,
+  };
+  const { data, error, status } = await supabase
+    .from("quote_exports")
+    .insert([payload])
+    .select("id,export_uuid,project_name")
+    .limit(1);
+  if (error) {
+    console.error("Supabase test export insert failed", {
+      operation: "quote_exports.insert",
+      status,
+      code: error.code || "",
+      message: error.message || "",
+      details: error.details || "",
+    });
+    return {
+      ok: false,
+      status: 500,
+      error: error.message || "Failed to insert test export row.",
+    };
+  }
+  const row = Array.isArray(data) && data[0] ? data[0] : null;
+  console.log("Supabase test export insert succeeded", {
+    export_uuid: row?.export_uuid || exportUuid,
+    project_name: row?.project_name || payload.project_name,
+    id: row?.id || null,
+  });
+  return {
+    ok: true,
+    status: 200,
+    row: row || { export_uuid: exportUuid, project_name: payload.project_name },
+  };
 }
 
 async function renderProposalPdf(proposalData) {
@@ -208,6 +277,11 @@ const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || "/", `http://${host}:${port}`);
     if (req.method === "GET" && (requestUrl.pathname === "/health" || requestUrl.pathname === "/proposal-api/health")) {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (req.method === "POST" && (requestUrl.pathname === "/test-export-log" || requestUrl.pathname === "/proposal-api/test-export-log")) {
+      const result = await runSupabaseTestExportInsert();
+      sendJson(res, result.status || (result.ok ? 200 : 500), result);
       return;
     }
     if (
