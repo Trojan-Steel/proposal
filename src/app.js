@@ -7287,6 +7287,22 @@ function cloneOptimizationJoistBreakdown(breakdown) {
   };
 }
 
+function cloneOptimizationScenario(scenario) {
+  if (!scenario || typeof scenario !== "object") {
+    return null;
+  }
+  return {
+    ...scenario,
+    deckBreakdown: cloneOptimizationDeckBreakdown(scenario.deckBreakdown),
+    joistBreakdown: cloneOptimizationJoistBreakdown(scenario.joistBreakdown),
+    deckAssignments: Array.isArray(scenario.deckAssignments)
+      ? scenario.deckAssignments.map((assignment) => ({
+          ...assignment,
+        }))
+      : [],
+  };
+}
+
 function getScenarioDeckVendors(scenario) {
   return Array.from(
     new Set(
@@ -7303,17 +7319,50 @@ function getScenarioTrojanDeckEntry(scenario) {
   );
 }
 
-function applyBoostToScenario(scenario, boostedTrojanMarginPercent) {
-  const trojanEntry = getScenarioTrojanDeckEntry(scenario);
-  if (!trojanEntry) {
+function isExactCscDeckAndCscJoistScenario(scenario) {
+  const deckVendors = getScenarioDeckVendors(scenario);
+  const joistVendor = String(scenario?.joistVendor || "").trim().toUpperCase();
+  return deckVendors.length > 0 && deckVendors.every((vendor) => vendor === "CSC") && joistVendor === "CSC";
+}
+
+function getScenarioSubtotalForBoost(scenario) {
+  return parsePositiveNumberOrZero(scenario?.subtotalCost);
+}
+
+function applyBoostToScenario(scenario, targetSubtotal) {
+  const safeTargetSubtotal = parsePositiveNumberOrZero(targetSubtotal);
+  const currentSubtotal = getScenarioSubtotalForBoost(scenario);
+  const delta = safeTargetSubtotal - currentSubtotal;
+  if (!Number.isFinite(delta) || delta <= 0) {
     return scenario;
   }
-  const safeMarginPercent = parsePositiveNumberOrZero(boostedTrojanMarginPercent);
-  const trojanSubtotal = parsePositiveNumberOrZero(trojanEntry.subtotalCost);
-  const trojanMarginAmount = trojanSubtotal * (safeMarginPercent / 100);
-  trojanEntry.marginPercent = safeMarginPercent;
-  trojanEntry.marginAmount = trojanMarginAmount;
-  trojanEntry.totalCost = trojanSubtotal + trojanMarginAmount;
+  const trojanEntry = getScenarioTrojanDeckEntry(scenario);
+  if (trojanEntry) {
+    const boostedTrojanSellTotal = parsePositiveNumberOrZero(trojanEntry.totalCost) + delta;
+    const trojanBaseSubtotal = parsePositiveNumberOrZero(trojanEntry.subtotalCost);
+    const trojanMarginAmount = Math.max(0, boostedTrojanSellTotal - trojanBaseSubtotal);
+    trojanEntry.marginAmount = trojanMarginAmount;
+    trojanEntry.totalCost = boostedTrojanSellTotal;
+    trojanEntry.marginPercent = trojanBaseSubtotal > 0 ? (trojanMarginAmount / trojanBaseSubtotal) * 100 : 0;
+  } else if (scenario.joistBreakdown) {
+    scenario.joistBreakdown.marginAmount = parsePositiveNumberOrZero(scenario.joistBreakdown.marginAmount) + delta;
+    scenario.joistBreakdown.totalCost = parsePositiveNumberOrZero(scenario.joistBreakdown.totalCost) + delta;
+    scenario.joistBreakdown.marginPercent =
+      parsePositiveNumberOrZero(scenario.joistBreakdown.subtotalCost) > 0
+        ? (scenario.joistBreakdown.marginAmount / parsePositiveNumberOrZero(scenario.joistBreakdown.subtotalCost)) * 100
+        : 0;
+  } else if (scenario.deckBreakdown?.entries?.length) {
+    const firstDeckEntry = scenario.deckBreakdown.entries[0];
+    firstDeckEntry.marginAmount = parsePositiveNumberOrZero(firstDeckEntry.marginAmount) + delta;
+    firstDeckEntry.totalCost = parsePositiveNumberOrZero(firstDeckEntry.totalCost) + delta;
+    firstDeckEntry.marginPercent =
+      parsePositiveNumberOrZero(firstDeckEntry.subtotalCost) > 0
+        ? (firstDeckEntry.marginAmount / parsePositiveNumberOrZero(firstDeckEntry.subtotalCost)) * 100
+        : 0;
+  } else {
+    return scenario;
+  }
+
   if (scenario.deckBreakdown) {
     scenario.deckBreakdown.marginAmount = (scenario.deckBreakdown.entries || []).reduce(
       (sum, entry) => sum + parsePositiveNumberOrZero(entry.marginAmount),
@@ -7336,7 +7385,7 @@ function applyBoostToScenario(scenario, boostedTrojanMarginPercent) {
   scenario.detailingAmount = parsePositiveNumberOrZero(detailingBreakdown.detailingAmount);
   scenario.finalTotal = parsePositiveNumberOrZero(detailingBreakdown.finalTotal);
   scenario.boosted = true;
-  scenario.boostedTrojanMarginPercent = safeMarginPercent;
+  scenario.boostTargetSubtotal = safeTargetSubtotal;
   return scenario;
 }
 
@@ -7372,14 +7421,18 @@ function getOptimizationBoostContextFromScenarios(scenarios = []) {
 }
 
 function applyBoostToScenarioListIfNeeded(scenarios) {
-  if (!state.pricingOptimizationBoost.isBoosted || !state.pricingOptimizationBoost.boostedOptionId) {
+  if (
+    !state.pricingOptimizationBoost.isBoosted ||
+    !state.pricingOptimizationBoost.boostedOptionId ||
+    parsePositiveNumberOrZero(state.pricingOptimizationBoost.targetSubtotal) <= 0
+  ) {
     return scenarios;
   }
   return (scenarios || []).map((scenario) => {
     if (String(scenario.id || "") !== String(state.pricingOptimizationBoost.boostedOptionId)) {
       return scenario;
     }
-    return applyBoostToScenario(scenario, state.pricingOptimizationBoost.boostedTrojanMarginPercent);
+    return applyBoostToScenario(scenario, state.pricingOptimizationBoost.targetSubtotal);
   });
 }
 
@@ -7390,6 +7443,20 @@ function sortScenariosForDisplay(scenarios) {
     }
     return b.marginAmount - a.marginAmount;
   });
+  const boostedId =
+    state.pricingOptimizationBoost.isBoosted && state.pricingOptimizationBoost.boostedOptionId
+      ? String(state.pricingOptimizationBoost.boostedOptionId)
+      : "";
+  if (boostedId) {
+    return sorted.sort((a, b) => {
+      const aBoosted = String(a.id || "") === boostedId ? 1 : 0;
+      const bBoosted = String(b.id || "") === boostedId ? 1 : 0;
+      if (aBoosted !== bBoosted) {
+        return bBoosted - aBoosted;
+      }
+      return 0;
+    });
+  }
   const appliedId = String(state.appliedOptimizationSelection.scenarioId || "");
   if (!appliedId) {
     return sorted;
@@ -7538,7 +7605,9 @@ function buildPricingOptimizationScenarios() {
   );
 
   const baseScenarios = buildScenarioList(requirements, catalog, adminPricingSnapshot);
-  const boostedScenarios = applyBoostToScenarioListIfNeeded(baseScenarios);
+  const boostedScenarios = applyBoostToScenarioListIfNeeded(
+    (baseScenarios || []).map((scenario) => cloneOptimizationScenario(scenario)),
+  );
   const scenarios = sortScenariosForDisplay(boostedScenarios);
   const boostContext = getOptimizationBoostContextFromScenarios(baseScenarios);
   return {
@@ -7548,41 +7617,55 @@ function buildPricingOptimizationScenarios() {
     eligibleDeckVendors: deckVendors,
     eligibleJoistVendors: joistVendors,
     boostContext,
+    baseScenarios,
     scenarios,
     bestScenario: scenarios[0] || null,
   };
 }
 
 function getBoostPricingContext(optimization) {
-  const scenarios = Array.isArray(optimization?.scenarios) ? optimization.scenarios : [];
-  const cscOnlyScenarios = scenarios.filter((scenario) => {
-    const deckVendors = getScenarioDeckVendors(scenario);
-    if (deckVendors.length === 0 || deckVendors.some((vendor) => vendor !== "CSC")) {
-      return false;
-    }
-    return true;
-  });
-  if (cscOnlyScenarios.length === 0) {
+  const scenarios = Array.isArray(optimization?.baseScenarios)
+    ? optimization.baseScenarios
+    : Array.isArray(optimization?.scenarios)
+      ? optimization.scenarios
+      : [];
+  const baselineScenario = scenarios.find((scenario) => isExactCscDeckAndCscJoistScenario(scenario));
+  if (!baselineScenario) {
     return {
       available: false,
-      reason: "No CSC total available for boost.",
+      reason: "No CSC DECK + CSC JOIST baseline found.",
       cscTotal: 0,
       boostTotal: 0,
       boostFactor: getBoostPercentOfCscFactor(),
+      baselineScenarioId: "",
+      targetScenarioId: "",
+      baselineSubtotal: 0,
+      targetSubtotal: 0,
     };
   }
-  const cscTotal = cscOnlyScenarios.reduce(
-    (maxTotal, scenario) => Math.max(maxTotal, parsePositiveNumberOrZero(scenario.finalTotal)),
-    0,
-  );
+  const cheapestScenario = [...scenarios].sort(
+    (a, b) => getScenarioSubtotalForBoost(a) - getScenarioSubtotalForBoost(b),
+  )[0];
+  const baselineSubtotal = getScenarioSubtotalForBoost(baselineScenario);
   const boostFactor = getBoostPercentOfCscFactor();
-  const boostTotal = computeBoostTotalFromCsc(cscTotal, boostFactor);
+  const boostTotal = computeBoostTotalFromCsc(baselineSubtotal, boostFactor);
+  const currentCheapestSubtotal = getScenarioSubtotalForBoost(cheapestScenario);
   return {
-    available: cscTotal > 0,
-    reason: cscTotal > 0 ? "" : "No CSC total available for boost.",
-    cscTotal,
+    available: baselineSubtotal > 0 && Boolean(cheapestScenario),
+    reason:
+      baselineSubtotal <= 0
+        ? "CSC DECK + CSC JOIST baseline has no subtotal."
+        : !cheapestScenario
+          ? "No option available to boost."
+          : "",
+    cscTotal: baselineSubtotal,
     boostTotal,
     boostFactor,
+    baselineScenarioId: String(baselineScenario.id || ""),
+    targetScenarioId: String(cheapestScenario?.id || ""),
+    baselineSubtotal,
+    targetSubtotal: boostTotal,
+    currentCheapestSubtotal,
   };
 }
 
@@ -7598,7 +7681,7 @@ function getScenarioDisplayPricing(scenario, isBoostedApplied, boostContext) {
       marginPercent,
     };
   }
-  const boostedSubtotal = parsePositiveNumberOrZero(boostContext.boostTotal);
+  const boostedSubtotal = parsePositiveNumberOrZero(state.pricingOptimizationBoost.targetSubtotal || boostContext.boostTotal);
   const boostedMarginAmount = boostedSubtotal - baseCost;
   const boostedMarginPercent = boostedSubtotal > 0 ? (boostedMarginAmount / boostedSubtotal) * 100 : 0;
   return {
@@ -7613,7 +7696,8 @@ function getActiveBoostTotalIfEnabled() {
     return 0;
   }
   const appliedScenarioId = String(state.appliedOptimizationSelection.scenarioId || "");
-  if (!appliedScenarioId || appliedScenarioId === "BOOST") {
+  const boostedOptionId = String(state.pricingOptimizationBoost.boostedOptionId || "");
+  if (!appliedScenarioId || appliedScenarioId === "BOOST" || !boostedOptionId || appliedScenarioId !== boostedOptionId) {
     return 0;
   }
   const optimization = buildPricingOptimizationScenarios();
@@ -7628,9 +7712,9 @@ function getActiveBoostTotalIfEnabled() {
     return 0;
   }
   state.pricingOptimizationBoost.boostFactor = boostContext.boostFactor;
-  state.pricingOptimizationBoost.cscTotal = boostContext.cscTotal;
-  state.pricingOptimizationBoost.boostTotal = boostContext.boostTotal;
-  return boostContext.boostTotal;
+  state.pricingOptimizationBoost.cscTotal = boostContext.baselineSubtotal;
+  state.pricingOptimizationBoost.boostTotal = state.pricingOptimizationBoost.targetSubtotal || boostContext.boostTotal;
+  return parsePositiveNumberOrZero(state.pricingOptimizationBoost.targetSubtotal || boostContext.boostTotal);
 }
 
 function getBoostedAppliedScenarioContext() {
@@ -7638,11 +7722,12 @@ function getBoostedAppliedScenarioContext() {
     return null;
   }
   const appliedScenarioId = String(state.appliedOptimizationSelection.scenarioId || "");
-  if (!appliedScenarioId || appliedScenarioId === "BOOST") {
+  const boostedOptionId = String(state.pricingOptimizationBoost.boostedOptionId || "");
+  if (!appliedScenarioId || appliedScenarioId === "BOOST" || appliedScenarioId !== boostedOptionId) {
     return null;
   }
   const optimization = buildPricingOptimizationScenarios();
-  const scenario = (optimization.scenarios || []).find((row) => String(row.id || "") === appliedScenarioId);
+  const scenario = (optimization.baseScenarios || []).find((row) => String(row.id || "") === appliedScenarioId);
   if (!scenario) {
     return null;
   }
@@ -7650,15 +7735,15 @@ function getBoostedAppliedScenarioContext() {
   if (!trojanEntry) {
     return null;
   }
-  const baseScenarioSubtotal = parsePositiveNumberOrZero(scenario.subtotalCost);
-  const boostContext = getBoostPricingContext(optimization);
-  if (!boostContext.available || boostContext.boostTotal <= 0 || baseScenarioSubtotal <= 0) {
+  const baseScenarioSubtotal = getScenarioSubtotalForBoost(scenario);
+  const boostedTargetSubtotal = parsePositiveNumberOrZero(state.pricingOptimizationBoost.targetSubtotal);
+  if (boostedTargetSubtotal <= 0 || baseScenarioSubtotal <= 0 || boostedTargetSubtotal <= baseScenarioSubtotal) {
     return null;
   }
-  const boostScale = boostContext.boostTotal / baseScenarioSubtotal;
+  const delta = boostedTargetSubtotal - baseScenarioSubtotal;
+  const trojanSellTotal = parsePositiveNumberOrZero(trojanEntry.totalCost) + delta;
   return {
-    boostScale,
-    trojanSellTotal: parsePositiveNumberOrZero(trojanEntry.totalCost) * boostScale,
+    trojanSellTotal,
   };
 }
 
@@ -7731,7 +7816,10 @@ function renderPricingOptimizationResults() {
     .map((scenario, index) => {
       const isBest = index === 0;
       const isApplied = String(state.appliedOptimizationSelection.scenarioId || "") === String(scenario.id || "");
-      const isBoosted = Boolean(state.pricingOptimizationBoost.isBoosted && isApplied);
+      const isBoosted = Boolean(
+        state.pricingOptimizationBoost.isBoosted &&
+          String(state.pricingOptimizationBoost.boostedOptionId || "") === String(scenario.id || ""),
+      );
       const deckLine =
         scenario.deckBreakdown && Array.isArray(scenario.deckBreakdown.entries)
           ? scenario.deckBreakdown.entries
@@ -7886,30 +7974,66 @@ function togglePricingOptimizationBoost() {
     renderPricingOptimizationResults();
     return;
   }
+  const boostedScenario = (optimization.baseScenarios || []).find(
+    (scenario) => String(scenario.id || "") === String(boostContext.targetScenarioId || ""),
+  );
+  if (!boostedScenario) {
+    state.pricingOptimizationBoost.notice = "Unable to locate the cheapest option for boost.";
+    renderPricingOptimizationResults();
+    return;
+  }
+  const boostedTrojanEntry = getScenarioTrojanDeckEntry(boostedScenario);
+  const boostedScenarioSubtotal = getScenarioSubtotalForBoost(boostedScenario);
+  const delta = boostContext.boostTotal - boostedScenarioSubtotal;
+  if (delta <= 0) {
+    state.pricingOptimizationBoost.notice = "Already above target";
+    renderPricingOptimizationResults();
+    return;
+  }
+  const boostedTrojanSellTotal = parsePositiveNumberOrZero(boostedTrojanEntry?.totalCost) + delta;
+  const boostedTrojanCogs = parsePositiveNumberOrZero(boostedTrojanEntry?.subtotalCost);
+  const boostedTrojanMarginPercentForScenario =
+    boostedTrojanCogs > 0 ? ((boostedTrojanSellTotal - boostedTrojanCogs) / boostedTrojanCogs) * 100 : 0;
 
   state.pricingOptimizationBoost = {
     isBoosted: true,
     boostFactor: boostContext.boostFactor,
-    cscTotal: boostContext.cscTotal,
+    cscTotal: boostContext.baselineSubtotal,
     boostTotal: boostContext.boostTotal,
     previousAppliedSelection: {
       ...state.appliedOptimizationSelection,
     },
-    boostedOptionId: null,
-    boostedOriginalTrojanMarginPercent: null,
-    boostedTrojanMarginPercent: null,
-    benchmarkSubtotal: 0,
-    targetSubtotal: 0,
+    boostedOptionId: String(boostedScenario.id || ""),
+    boostedOriginalTrojanMarginPercent: parsePositiveNumberOrZero(boostedTrojanEntry?.marginPercent),
+    boostedTrojanMarginPercent: boostedTrojanMarginPercentForScenario > 0 ? boostedTrojanMarginPercentForScenario : null,
+    benchmarkSubtotal: boostContext.baselineSubtotal,
+    targetSubtotal: boostContext.boostTotal,
     notice: "",
+  };
+  state.appliedOptimizationSelection = {
+    deckMode: boostedScenario.deckMode || "auto",
+    deckVendor: boostedScenario.deckVendor || "",
+    deckAssignments: Array.isArray(boostedScenario.deckAssignments)
+      ? boostedScenario.deckAssignments.map((assignment) => ({
+          lineId: assignment.lineId,
+          vendor: String(assignment.vendor || "").trim().toUpperCase(),
+        }))
+      : [],
+    joistVendor: boostedScenario.joistVendor || "",
+    label: boostedScenario.label || "",
+    scenarioId: boostedScenario.id || "",
+    trojanDeckMarginPercentOverride: boostedTrojanMarginPercentForScenario > 0 ? boostedTrojanMarginPercentForScenario : null,
   };
   updateCalculator();
 }
 
-function applyPricingOptimizationScenario(index) {
-  const scenario = state.pricingOptimizationScenarios[index];
+function setAppliedOptimizationSelectionFromScenario(scenario) {
   if (!scenario) {
     return;
   }
+  const isBoostedScenario =
+    state.pricingOptimizationBoost.isBoosted &&
+    String(state.pricingOptimizationBoost.boostedOptionId || "") === String(scenario.id || "");
   state.appliedOptimizationSelection = {
     deckMode: scenario.deckMode || "auto",
     deckVendor: scenario.deckVendor || "",
@@ -7922,8 +8046,18 @@ function applyPricingOptimizationScenario(index) {
     joistVendor: scenario.joistVendor || "",
     label: scenario.label || "",
     scenarioId: scenario.id || "",
-    trojanDeckMarginPercentOverride: null,
+    trojanDeckMarginPercentOverride: isBoostedScenario
+      ? parsePositiveNumberOrZero(state.pricingOptimizationBoost.boostedTrojanMarginPercent)
+      : null,
   };
+}
+
+function applyPricingOptimizationScenario(index) {
+  const scenario = state.pricingOptimizationScenarios[index];
+  if (!scenario) {
+    return;
+  }
+  setAppliedOptimizationSelectionFromScenario(scenario);
   state.pricingOptimizationVisible = false;
   updateCalculator();
 }
