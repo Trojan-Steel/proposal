@@ -138,15 +138,22 @@ async function runSupabaseTestExportInsert() {
   const exportUuid = crypto.randomUUID();
   const payload = {
     export_uuid: exportUuid,
-    project_name: "TEST FROM CODEX",
-    final_subtotal: 12345,
+    project_name: "TEST QUOTE",
+    project_location: "TEST LOCATION",
+    selected_option_name: "TEST OPTION",
+    is_boost_on: false,
+    final_subtotal: 12345.67,
     total_margin_dollars: 1000,
     total_margin_pct: 8.1,
+    deck_supplier: "TROJAN",
+    joist_supplier: "CANO",
+    app_version: "web-test",
+    snapshot_json: { source: "test-endpoint" },
   };
   const { data, error, status } = await supabase
     .from("quote_exports")
     .insert([payload])
-    .select("id,export_uuid,project_name")
+    .select("id")
     .limit(1);
   if (error) {
     console.error("Supabase test export insert failed", {
@@ -164,14 +171,13 @@ async function runSupabaseTestExportInsert() {
   }
   const row = Array.isArray(data) && data[0] ? data[0] : null;
   console.log("Supabase test export insert succeeded", {
-    export_uuid: row?.export_uuid || exportUuid,
-    project_name: row?.project_name || payload.project_name,
+    export_uuid: exportUuid,
     id: row?.id || null,
   });
   return {
     ok: true,
     status: 200,
-    row: row || { export_uuid: exportUuid, project_name: payload.project_name },
+    insertedId: row?.id || null,
   };
 }
 
@@ -281,7 +287,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && (requestUrl.pathname === "/test-export-log" || requestUrl.pathname === "/proposal-api/test-export-log")) {
       const result = await runSupabaseTestExportInsert();
-      sendJson(res, result.status || (result.ok ? 200 : 500), result);
+      const responseStatus = result.status || (result.ok ? 200 : 500);
+      const responseBody = result.ok
+        ? { ok: true, insertedId: result.insertedId || null }
+        : { ok: false, error: result.error || "Failed to insert test export row." };
+      sendJson(res, responseStatus, responseBody);
       return;
     }
     if (
