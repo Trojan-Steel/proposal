@@ -894,7 +894,11 @@
       const response = await fetch(proposalApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposalData: data }),
+        body: JSON.stringify({
+          proposalData: data,
+          export_uuid: exportPayload.export_uuid,
+          project_name: exportPayload?.header?.project_name || data?.projectName || "",
+        }),
       });
       if (!response.ok) {
         const text = (await response.text()).slice(0, 200);

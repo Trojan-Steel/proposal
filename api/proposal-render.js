@@ -1,5 +1,6 @@
 const chromium = require("@sparticuz/chromium");
 const puppeteerCore = require("puppeteer-core");
+const { createClient } = require("@supabase/supabase-js");
 
 const MAX_BODY_BYTES = 2_000_000;
 const LOAD_TIMEOUT_MS = 45_000;
@@ -9,6 +10,19 @@ function sanitizeFilenamePart(value, fallback = "proposal") {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return cleaned || fallback;
+}
+
+function sanitizeStorageSegment(value, fallback = "project") {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9 _-]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/ /g, "-")
+    .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return cleaned || fallback;
@@ -64,6 +78,17 @@ async function launchBrowser() {
   });
 }
 
+function getSupabaseAdminClient() {
+  const url = process.env.SUPABASE_URL || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  if (!url || !serviceRoleKey) {
+    return null;
+  }
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 async function waitForAllImages(page) {
   await page.evaluate(async () => {
     const images = Array.from(document.querySelectorAll("img"));
@@ -102,6 +127,8 @@ module.exports = async function handler(req, res) {
   try {
     const payload = await readRequestJson(req);
     const proposalData = payload && isPlainObject(payload.proposalData) ? payload.proposalData : null;
+    const exportUuid = String(payload?.export_uuid || "").trim();
+    const projectNameForStorage = String(payload?.project_name || proposalData?.projectName || "").trim();
     if (!proposalData) {
       return res.status(400).json({
         error: "Missing proposalData object in request body.",
@@ -220,6 +247,35 @@ module.exports = async function handler(req, res) {
       },
       timeout: LOAD_TIMEOUT_MS,
     });
+
+    if (exportUuid && projectNameForStorage) {
+      try {
+        const supabase = getSupabaseAdminClient();
+        if (supabase) {
+          const folder = sanitizeStorageSegment(projectNameForStorage, "project");
+          const pdfPath = `${folder}/${exportUuid}.pdf`;
+          const uploadResult = await supabase.storage.from("proposals").upload(pdfPath, Buffer.from(pdfBuffer), {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+          if (uploadResult.error) {
+            throw uploadResult.error;
+          }
+          const updateResult = await supabase
+            .from("quote_exports")
+            .update({ pdf_path: pdfPath })
+            .eq("export_uuid", exportUuid);
+          if (updateResult.error) {
+            throw updateResult.error;
+          }
+        }
+      } catch (uploadError) {
+        console.error("proposal-render pdf upload/link failed", {
+          message: uploadError instanceof Error ? uploadError.message : String(uploadError),
+          export_uuid: exportUuid,
+        });
+      }
+    }
 
     const filename = `${sanitizeFilenamePart(proposalData.projectName, "proposal")}-${sanitizeFilenamePart(
       proposalData.quoteRef,
