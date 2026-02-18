@@ -218,6 +218,14 @@
         manufacturer: String(line?.manufacturer || "").trim(),
         sqs: toNumber(line?.sqs) || parseCurrencyText(deckRows[index]?.[1]),
         tons: toNumber(line?.tons) || parseCurrencyText(deckRows[index]?.[2]),
+        pricePerTon:
+          line?.pricePerTon === null || line?.pricePerTon === undefined || String(line.pricePerTon).trim() === ""
+            ? null
+            : parseCurrencyText(line.pricePerTon),
+        extended:
+          line?.extended === null || line?.extended === undefined || String(line.extended).trim() === ""
+            ? null
+            : parseCurrencyText(line.extended),
       })),
       accessoryLines: accessoryRows.map((cells) => ({
         type: cells[0] || "",
@@ -229,6 +237,14 @@
         manufacturer: String(line?.manufacturer || "").trim(),
         units: toNumber(line?.units) || parseCurrencyText(joistRows[index]?.[1]),
         tons: toNumber(line?.tons) || parseCurrencyText(joistRows[index]?.[2]),
+        pricePerTon:
+          line?.pricePerTon === null || line?.pricePerTon === undefined || String(line.pricePerTon).trim() === ""
+            ? null
+            : parseCurrencyText(line.pricePerTon),
+        extended:
+          line?.extended === null || line?.extended === undefined || String(line.extended).trim() === ""
+            ? null
+            : parseCurrencyText(line.extended),
       })),
       pricingLines: [
         { label: "TOTAL PROJECT PRICE", amount: finalSubtotal },
@@ -251,8 +267,14 @@
         uom: "TON",
         weight_lbs: null,
         tons: toNumber(line?.tons),
-        unit_price: null,
-        extended_price: null,
+        unit_price:
+          line?.pricePerTon === null || line?.pricePerTon === undefined || String(line.pricePerTon).trim() === ""
+            ? null
+            : parseCurrencyText(line.pricePerTon),
+        extended_price:
+          line?.extended === null || line?.extended === undefined || String(line.extended).trim() === ""
+            ? null
+            : parseCurrencyText(line.extended),
         unit_cost: null,
         extended_cost: null,
         margin: null,
@@ -277,8 +299,14 @@
         uom: "TON",
         weight_lbs: null,
         tons: toNumber(line?.tons),
-        unit_price: null,
-        extended_price: null,
+        unit_price:
+          line?.pricePerTon === null || line?.pricePerTon === undefined || String(line.pricePerTon).trim() === ""
+            ? null
+            : parseCurrencyText(line.pricePerTon),
+        extended_price:
+          line?.extended === null || line?.extended === undefined || String(line.extended).trim() === ""
+            ? null
+            : parseCurrencyText(line.extended),
         unit_cost: null,
         extended_cost: null,
         margin: null,
@@ -292,6 +320,12 @@
     snapshot.accessoryLines.forEach((line) => {
       const screwCount = Number(line?.screwCount);
       const accessoryQty = Number.isFinite(screwCount) && screwCount > 0 ? screwCount : toNumber(line?.tons);
+      const accessoryUnitPriceRaw = line?.unit_price ?? line?.unitPrice;
+      const accessoryExtendedPriceRaw = line?.extended_price ?? line?.extendedPrice;
+      const accessoryUnitCostRaw = line?.unit_cost ?? line?.unitCost;
+      const accessoryExtendedCostRaw = line?.extended_cost ?? line?.extendedCost;
+      const accessoryMarginRaw = line?.margin;
+      const accessoryMarginPctRaw = line?.margin_pct ?? line?.marginPct;
       line_items.push({
         export_uuid: snapshot.export_uuid,
         line_no: lineNo++,
@@ -301,12 +335,34 @@
         uom: "EA",
         weight_lbs: null,
         tons: toNumber(line?.tons),
-        unit_price: null,
-        extended_price: null,
-        unit_cost: null,
-        extended_cost: null,
-        margin: null,
-        margin_pct: null,
+        unit_price:
+          accessoryUnitPriceRaw === null || accessoryUnitPriceRaw === undefined || String(accessoryUnitPriceRaw).trim() === ""
+            ? null
+            : parseCurrencyText(accessoryUnitPriceRaw),
+        extended_price:
+          accessoryExtendedPriceRaw === null ||
+          accessoryExtendedPriceRaw === undefined ||
+          String(accessoryExtendedPriceRaw).trim() === ""
+            ? null
+            : parseCurrencyText(accessoryExtendedPriceRaw),
+        unit_cost:
+          accessoryUnitCostRaw === null || accessoryUnitCostRaw === undefined || String(accessoryUnitCostRaw).trim() === ""
+            ? null
+            : parseCurrencyText(accessoryUnitCostRaw),
+        extended_cost:
+          accessoryExtendedCostRaw === null ||
+          accessoryExtendedCostRaw === undefined ||
+          String(accessoryExtendedCostRaw).trim() === ""
+            ? null
+            : parseCurrencyText(accessoryExtendedCostRaw),
+        margin:
+          accessoryMarginRaw === null || accessoryMarginRaw === undefined || String(accessoryMarginRaw).trim() === ""
+            ? null
+            : parseCurrencyText(accessoryMarginRaw),
+        margin_pct:
+          accessoryMarginPctRaw === null || accessoryMarginPctRaw === undefined || String(accessoryMarginPctRaw).trim() === ""
+            ? null
+            : toNumber(accessoryMarginPctRaw),
         supplier_key: "",
         accessory_type: String(line?.type || "").trim(),
         accessory_qty: accessoryQty,
