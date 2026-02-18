@@ -7325,6 +7325,12 @@ function isExactCscDeckAndCscJoistScenario(scenario) {
   return deckVendors.length > 0 && deckVendors.every((vendor) => vendor === "CSC") && joistVendor === "CSC";
 }
 
+function isExactCscDeckOnlyScenario(scenario) {
+  const deckVendors = getScenarioDeckVendors(scenario);
+  const joistVendor = String(scenario?.joistVendor || "").trim().toUpperCase();
+  return deckVendors.length > 0 && deckVendors.every((vendor) => vendor === "CSC") && (joistVendor === "" || joistVendor === "NONE");
+}
+
 function getScenarioSubtotalForBoost(scenario) {
   return parsePositiveNumberOrZero(scenario?.subtotalCost);
 }
@@ -7629,11 +7635,16 @@ function getBoostPricingContext(optimization) {
     : Array.isArray(optimization?.scenarios)
       ? optimization.scenarios
       : [];
-  const baselineScenario = scenarios.find((scenario) => isExactCscDeckAndCscJoistScenario(scenario));
+  const hasJoistScope =
+    scenarios.some((scenario) => parsePositiveNumberOrZero(scenario?.joistTons) > 0) ||
+    scenarios.some((scenario) => String(scenario?.joistVendor || "").trim() !== "");
+  const baselineScenario = hasJoistScope
+    ? scenarios.find((scenario) => isExactCscDeckAndCscJoistScenario(scenario))
+    : scenarios.find((scenario) => isExactCscDeckOnlyScenario(scenario));
   if (!baselineScenario) {
     return {
       available: false,
-      reason: "No CSC DECK + CSC JOIST baseline found.",
+      reason: hasJoistScope ? "No CSC DECK + CSC JOIST baseline found." : "No CSC DECK baseline found.",
       cscTotal: 0,
       boostTotal: 0,
       boostFactor: getBoostPercentOfCscFactor(),
@@ -7654,7 +7665,9 @@ function getBoostPricingContext(optimization) {
     available: baselineSubtotal > 0 && Boolean(cheapestScenario),
     reason:
       baselineSubtotal <= 0
-        ? "CSC DECK + CSC JOIST baseline has no subtotal."
+        ? hasJoistScope
+          ? "CSC DECK + CSC JOIST baseline has no subtotal."
+          : "CSC DECK baseline has no subtotal."
         : !cheapestScenario
           ? "No option available to boost."
           : "",
