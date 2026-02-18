@@ -105,6 +105,38 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function parseDeckType(typeText) {
+    const raw = String(typeText || "").trim();
+    if (!raw) {
+      return {
+        depth_in: null,
+        profile: "",
+        gauge: "",
+        finish: "",
+        grade: null,
+      };
+    }
+
+    const compact = raw.replace(/\s+/g, "");
+    const baseMatch = compact.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)(\d{2})(G\d+)/i);
+    const depthIn = baseMatch && Number.isFinite(Number(baseMatch[1])) ? Number(baseMatch[1]) : null;
+    const profile = baseMatch ? String(baseMatch[2] || "").toUpperCase() : "";
+    const gauge = baseMatch ? String(baseMatch[3] || "") : "";
+    const finish = baseMatch ? String(baseMatch[4] || "").toUpperCase() : "";
+
+    const gradeMatch = raw.match(/\bGR\s*([0-9]+(?:\.[0-9]+)?)\b/i) || raw.match(/\b([0-9]+(?:\.[0-9]+)?)\b(?!.*\bGR\b)/i);
+    const gradeValue = gradeMatch ? Number(gradeMatch[1]) : NaN;
+    const grade = Number.isFinite(gradeValue) ? gradeValue : null;
+
+    return {
+      depth_in: depthIn,
+      profile,
+      gauge,
+      finish,
+      grade,
+    };
+  }
+
   function createExportUuid() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return window.crypto.randomUUID();
@@ -209,6 +241,7 @@
     const line_items = [];
     snapshot.deckLines.forEach((line) => {
       const sqsValue = Number(line?.sqs);
+      const parsedDeckType = parseDeckType(line?.type);
       line_items.push({
         export_uuid: snapshot.export_uuid,
         line_no: lineNo++,
@@ -225,7 +258,11 @@
         margin: null,
         margin_pct: null,
         supplier_key: String(line?.manufacturer || "").trim(),
-        deck_profile: String(line?.type || "").trim(),
+        deck_depth_in: parsedDeckType.depth_in,
+        deck_profile: parsedDeckType.profile,
+        deck_gauge: parsedDeckType.gauge,
+        deck_finish: parsedDeckType.finish,
+        deck_grade: parsedDeckType.grade,
         deck_sqs_count: Number.isFinite(sqsValue) ? Math.round(sqsValue) : null,
         spec_json: line,
       });
