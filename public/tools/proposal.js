@@ -334,13 +334,6 @@
   }
 
   async function logExportToSupabase(payload, logQuoteExportUrl) {
-    window.__lastExportPayload = payload;
-    console.log("[EXPORT DEBUG] log URL:", logQuoteExportUrl);
-    console.log("[EXPORT DEBUG] payload:", payload);
-    console.log(
-      "[EXPORT DEBUG] deck line_items:",
-      (Array.isArray(payload?.line_items) ? payload.line_items : []).filter((x) => x && x.item_type === "deck"),
-    );
     const response = await fetch(logQuoteExportUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

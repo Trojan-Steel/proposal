@@ -73,10 +73,6 @@ module.exports = async function handler(req, res) {
 
   try {
     const payload = await readRequestJson(req);
-    console.log(
-      "[EXPORT DEBUG][SERVER] first deck line item:",
-      toArray(payload?.line_items).find((item) => isPlainObject(item) && item.item_type === "deck") || null,
-    );
     const exportUuid = normalizeText(payload?.export_uuid);
     const header = isPlainObject(payload?.header) ? payload.header : null;
     const snapshotJson = isPlainObject(payload?.snapshot_json) ? payload.snapshot_json : null;
