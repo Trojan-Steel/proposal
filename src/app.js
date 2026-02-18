@@ -7635,9 +7635,7 @@ function getBoostPricingContext(optimization) {
     : Array.isArray(optimization?.scenarios)
       ? optimization.scenarios
       : [];
-  const hasJoistScope =
-    scenarios.some((scenario) => parsePositiveNumberOrZero(scenario?.joistTons) > 0) ||
-    scenarios.some((scenario) => String(scenario?.joistVendor || "").trim() !== "");
+  const hasJoistScope = parsePositiveNumberOrZero(optimization?.joistTons) > 0;
   const baselineScenario = hasJoistScope
     ? scenarios.find((scenario) => isExactCscDeckAndCscJoistScenario(scenario))
     : scenarios.find((scenario) => isExactCscDeckOnlyScenario(scenario));
