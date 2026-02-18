@@ -5679,6 +5679,13 @@ function renderTrojanDeckCogs(overrideBreakdown = null) {
     return '<p class="help-text">No Trojan deck tons in scope.</p>';
   }
 
+  const isDerivedMargin = Boolean(breakdown.isBoostDerivedMargin);
+  const marginMeta = isDerivedMargin
+    ? "Margin % is derived from active Boost pricing."
+    : `${formatMoney(breakdown.totalCogs)} x ${formatTwoDecimals(breakdown.marginPercent)}% (minimum ${formatMoney(
+        breakdown.minimumMarginAmount,
+      )})`;
+
   return `
     <div class="pricing-cogs-grid">
       <div class="pricing-cogs-item">
@@ -5728,14 +5735,13 @@ function renderTrojanDeckCogs(overrideBreakdown = null) {
             value="${breakdown.marginPercent}"
             data-action="pricing-margin-input"
             data-pricing-margin-section="trojanDeck"
+            ${isDerivedMargin ? "disabled" : ""}
           />
         </div>
       </div>
       <div class="pricing-cogs-item">
         <div class="pricing-cogs-row"><span>Margin Amount</span><strong>${formatMoney(breakdown.marginAmount)}</strong></div>
-        <p class="pricing-cogs-meta">${formatMoney(breakdown.totalCogs)} x ${formatTwoDecimals(
-          breakdown.marginPercent,
-        )}% (minimum ${formatMoney(breakdown.minimumMarginAmount)})</p>
+        <p class="pricing-cogs-meta">${marginMeta}</p>
       </div>
       <div class="pricing-cogs-item pricing-cogs-total">
         <div class="pricing-cogs-row"><span>Retail Trojan Deck Price</span><strong>${formatMoney(
@@ -7627,6 +7633,35 @@ function getActiveBoostTotalIfEnabled() {
   return boostContext.boostTotal;
 }
 
+function getBoostedAppliedScenarioContext() {
+  if (!state.pricingOptimizationBoost.isBoosted) {
+    return null;
+  }
+  const appliedScenarioId = String(state.appliedOptimizationSelection.scenarioId || "");
+  if (!appliedScenarioId || appliedScenarioId === "BOOST") {
+    return null;
+  }
+  const optimization = buildPricingOptimizationScenarios();
+  const scenario = (optimization.scenarios || []).find((row) => String(row.id || "") === appliedScenarioId);
+  if (!scenario) {
+    return null;
+  }
+  const trojanEntry = getScenarioTrojanDeckEntry(scenario);
+  if (!trojanEntry) {
+    return null;
+  }
+  const baseScenarioSubtotal = parsePositiveNumberOrZero(scenario.subtotalCost);
+  const boostContext = getBoostPricingContext(optimization);
+  if (!boostContext.available || boostContext.boostTotal <= 0 || baseScenarioSubtotal <= 0) {
+    return null;
+  }
+  const boostScale = boostContext.boostTotal / baseScenarioSubtotal;
+  return {
+    boostScale,
+    trojanSellTotal: parsePositiveNumberOrZero(trojanEntry.totalCost) * boostScale,
+  };
+}
+
 function renderPricingOptimizationResults() {
   if (!pricingOptimizeResults) {
     return;
@@ -8140,6 +8175,19 @@ function renderPricingSections() {
   const brokeredBreakdown = getBrokeredDeckPricingBreakdown();
   const joistsBreakdown = getJoistsPricingBreakdown();
   applyMinimumMarginToLiveBreakdowns(trojanBreakdown, brokeredBreakdown, joistsBreakdown);
+  const boostedScenarioContext = getBoostedAppliedScenarioContext();
+  if (trojanBreakdown.hasTrojanDeck && boostedScenarioContext && boostedScenarioContext.trojanSellTotal > 0) {
+    const effectiveSell = parsePositiveNumberOrZero(boostedScenarioContext.trojanSellTotal);
+    const totalCogs = parsePositiveNumberOrZero(trojanBreakdown.totalCogs);
+    const marginAmount = effectiveSell - totalCogs;
+    const marginPercent = effectiveSell > 0 ? (marginAmount / effectiveSell) * 100 : 0;
+    trojanBreakdown.marginAmount = marginAmount;
+    trojanBreakdown.marginPercent = marginPercent;
+    trojanBreakdown.totalWithMargin = effectiveSell;
+    trojanBreakdown.isBoostDerivedMargin = true;
+  } else {
+    trojanBreakdown.isBoostDerivedMargin = false;
+  }
   if (pricingTrojanHeaderCogs) {
     const trojanCollapsed = Boolean(state.pricingSections.trojanDeck);
     pricingTrojanHeaderCogs.textContent =
