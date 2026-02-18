@@ -262,57 +262,17 @@ module.exports = async function handler(req, res) {
             throw uploadResult.error;
           }
           const signedUrl = null;
-          const updatePayload = {
-            pdf_path: pdfPath,
-            pdf_url: signedUrl || null,
-            updated_at: new Date().toISOString(),
-          };
-
-          const initialUpdate = await supabase
-            .from("quote_exports")
-            .update(updatePayload)
-            .eq("export_uuid", exportUuid);
-          if (initialUpdate.error) {
-            throw initialUpdate.error;
-          }
-
-          let check = await supabase
-            .from("quote_exports")
-            .select("export_uuid,pdf_path,pdf_url")
-            .eq("export_uuid", exportUuid)
-            .maybeSingle();
-          if (check.error) {
-            throw check.error;
-          }
-
-          if (check.data && !check.data.pdf_path) {
-            const retryUpdate = await supabase
-              .from("quote_exports")
-              .update(updatePayload)
-              .eq("export_uuid", exportUuid);
-            if (retryUpdate.error) {
-              throw retryUpdate.error;
-            }
-
-            check = await supabase
-              .from("quote_exports")
-              .select("export_uuid,pdf_path,pdf_url")
-              .eq("export_uuid", exportUuid)
-              .maybeSingle();
-            if (check.error) {
-              throw check.error;
-            }
-
-            if (check.data && !check.data.pdf_path && check.data.pdf_url === null) {
-              const markFailed = await supabase
-                .from("quote_exports")
-                .update({ pdf_url: "UPDATE_FAILED" })
-                .eq("export_uuid", exportUuid)
-                .is("pdf_url", null);
-              if (markFailed.error) {
-                throw markFailed.error;
-              }
-            }
+          const { error: upsertError } = await supabase.from("quote_exports").upsert(
+            {
+              export_uuid: exportUuid,
+              pdf_path: pdfPath,
+              pdf_url: signedUrl ?? null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "export_uuid" },
+          );
+          if (upsertError) {
+            throw upsertError;
           }
 
         }
