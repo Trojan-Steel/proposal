@@ -261,11 +261,26 @@ module.exports = async function handler(req, res) {
           if (uploadResult.error) {
             throw uploadResult.error;
           }
-          const const updateResult = await supabase
+          const const uconst updateResult = await supabase
   .from("quote_exports")
   .update({ pdf_path: pdfPath })
   .eq("export_uuid", exportUuid)
-  .select("export_uuid"); // <-- forces returning matched rows
+  .select("export_uuid,pdf_path")
+  .maybeSingle();
+
+if (updateResult.error) {
+  throw updateResult.error;
+}
+
+console.log("quote_exports updated row:", updateResult.data);
+
+if (!updateResult.data) {
+  console.error("quote_exports update matched 0 rows", {
+    export_uuid: exportUuid,
+    pdf_path: pdfPath,
+  });
+}
+ // <-- forces returning matched rows
 
 if (updateResult.error) {
   throw updateResult.error;
@@ -316,4 +331,7 @@ if (!updateResult.data || updateResult.data.length === 0) {
       await browser.close().catch(() => {});
     }
   }
-};
+};git add api/proposal-render.js
+git commit -m "Log quote_exports update result"
+git push
+
