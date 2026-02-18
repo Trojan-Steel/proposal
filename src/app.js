@@ -8189,6 +8189,21 @@ function buildProposalDataFromState(options = {}) {
   const brokerMarginPercent = brokerSubtotal > 0 ? (brokerMarginAmount / brokerSubtotal) * 100 : 0;
   const totalMarginAmount = trojanMarginAmount + brokerMarginAmount;
   const blendedOverallMarginPercent = grandTotal > 0 ? (totalMarginAmount / grandTotal) * 100 : 0;
+  const selectedOptionName = String(state.appliedOptimizationSelection?.label || "").trim();
+  const selectedDeckSuppliers = Array.from(
+    new Set(
+      (state.vendorPlan?.deckAssignments || [])
+        .map((assignment) => String(assignment.vendor || "").trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+  const selectedDeckSupplier =
+    selectedDeckSuppliers.length === 0
+      ? ""
+      : selectedDeckSuppliers.length === 1
+        ? selectedDeckSuppliers[0]
+        : selectedDeckSuppliers.join(" + ");
+  const selectedJoistSupplier = String(state.joists?.supplier || "").trim().toUpperCase();
 
   return {
     quoteRef: quoteRefOverride || `TROJ-${Date.now().toString().slice(-8)}`,
@@ -8227,6 +8242,13 @@ function buildProposalDataFromState(options = {}) {
         amount: totalMarginAmount,
         blendedPercent: blendedOverallMarginPercent,
       },
+    },
+    exportMeta: {
+      selectedOptionName,
+      isBoostOn: Boolean(state.pricingOptimizationBoost?.isBoosted),
+      deckSupplier: selectedDeckSupplier,
+      joistSupplier: selectedJoistSupplier,
+      appVersion: "trojan-estimator-web",
     },
   };
 }

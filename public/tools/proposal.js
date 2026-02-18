@@ -58,6 +58,141 @@
     return `${parts.join("-")}.pdf`;
   }
 
+  function showToast(message, type) {
+    const toast = document.createElement("div");
+    toast.className = `proposal-toast proposal-toast-${type === "error" ? "error" : "success"}`;
+    toast.textContent = String(message || "");
+    toast.style.position = "fixed";
+    toast.style.right = "16px";
+    toast.style.bottom = "16px";
+    toast.style.zIndex = "9999";
+    toast.style.padding = "10px 12px";
+    toast.style.borderRadius = "8px";
+    toast.style.fontSize = "13px";
+    toast.style.fontWeight = "600";
+    toast.style.background = type === "error" ? "#fef2f2" : "#f0fdf4";
+    toast.style.color = type === "error" ? "#991b1b" : "#166534";
+    toast.style.border = `1px solid ${type === "error" ? "#fecaca" : "#bbf7d0"}`;
+    document.body.appendChild(toast);
+    window.setTimeout(() => {
+      toast.remove();
+    }, 2800);
+  }
+
+  function toNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function parseCurrencyText(value) {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+    const cleaned = String(value).replace(/[^0-9.-]/g, "");
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function createExportUuid() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    return `exp-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }
+
+  function collectTableRows(headerLabel) {
+    const tables = Array.from(proposalRoot.querySelectorAll(".table-wrap table"));
+    const targetTable = tables.find((table) => {
+      const heading = table.querySelector("thead th");
+      return heading && String(heading.textContent || "").trim().toUpperCase() === String(headerLabel).trim().toUpperCase();
+    });
+    if (!targetTable) {
+      return [];
+    }
+    return Array.from(targetTable.querySelectorAll("tbody tr"))
+      .map((row) => Array.from(row.querySelectorAll("td")).map((cell) => String(cell.textContent || "").trim()))
+      .filter((cells) => cells.some((cell) => cell !== ""));
+  }
+
+  function buildExportSnapshot(data) {
+    const exportMeta = data?.exportMeta && typeof data.exportMeta === "object" ? data.exportMeta : {};
+    const deckRows = collectTableRows("DECK");
+    const accessoryRows = collectTableRows("ACCESSORIES");
+    const joistRows = collectTableRows("JOIST");
+    const projectPriceEl = proposalRoot.querySelector(".project-price-value");
+    const projectPriceText = projectPriceEl ? String(projectPriceEl.textContent || "") : "";
+    const finalSubtotal = projectPriceText ? parseCurrencyText(projectPriceText) : toNumber(data?.totals?.grandTotal);
+    const deckSupplierFallback = Array.from(
+      new Set((Array.isArray(data?.deckLines) ? data.deckLines : []).map((line) => String(line?.manufacturer || "").trim()).filter(Boolean)),
+    ).join(" + ");
+    const joistSupplierFallback = Array.from(
+      new Set((Array.isArray(data?.joistLines) ? data.joistLines : []).map((line) => String(line?.manufacturer || "").trim()).filter(Boolean)),
+    ).join(" + ");
+
+    const snapshot = {
+      export_uuid: createExportUuid(),
+      created_at_client: new Date().toISOString(),
+      quoteRef: String(data?.quoteRef || "").trim(),
+      projectName: String(data?.projectName || "").trim(),
+      locationText: String(data?.locationText || "").trim(),
+      selectedOptionName: String(exportMeta.selectedOptionName || "").trim(),
+      isBoostOn: Boolean(exportMeta.isBoostOn),
+      finalSubtotal,
+      totalMarginDollars: toNumber(data?.margins?.total?.amount),
+      totalMarginPct: toNumber(data?.margins?.total?.blendedPercent),
+      deckSupplier: String(exportMeta.deckSupplier || deckSupplierFallback || "").trim(),
+      joistSupplier: String(exportMeta.joistSupplier || joistSupplierFallback || "").trim(),
+      appVersion: String(exportMeta.appVersion || "trojan-estimator-web").trim(),
+      keyInputs: {
+        proposalDate: String(data?.proposalDate || "").trim(),
+        validUntilDate: String(data?.validUntilDate || "").trim(),
+        submittalsLeadTime: String(data?.submittalsLeadTime || "").trim(),
+        fabricationLeadTime: String(data?.fabricationLeadTime || "").trim(),
+        takeoffByTrojan: String(data?.takeoffByTrojan || "").trim(),
+        cutListProvided: String(data?.cutListProvided || "").trim(),
+        specsReviewed: String(data?.specsReviewed || "").trim(),
+      },
+      deckLines: deckRows.map((cells) => ({
+        type: cells[0] || "",
+        sqs: parseCurrencyText(cells[1]),
+        tons: parseCurrencyText(cells[2]),
+      })),
+      accessoryLines: accessoryRows.map((cells) => ({
+        type: cells[0] || "",
+        screwCount: parseCurrencyText(cells[1]),
+        tons: parseCurrencyText(cells[2]),
+      })),
+      joistLines: joistRows.map((cells) => ({
+        description: cells[0] || "",
+        units: parseCurrencyText(cells[1]),
+        tons: parseCurrencyText(cells[2]),
+      })),
+      pricingLines: [
+        { label: "TOTAL PROJECT PRICE", amount: finalSubtotal },
+        { label: "TOTAL MARGIN", amount: toNumber(data?.margins?.total?.amount) },
+      ],
+      proposalData: data,
+    };
+
+    return snapshot;
+  }
+
+  async function logExportToSupabase(snapshot) {
+    const response = await fetch("/api/quote-export-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        export_uuid: snapshot.export_uuid,
+        snapshot,
+      }),
+    });
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 280);
+      throw new Error(`status ${response.status}: ${text}`);
+    }
+    return response.json().catch(() => ({ ok: true }));
+  }
+
   function loadProposalData() {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -648,6 +783,7 @@
       downloadButton.textContent = "Generating PDF...";
     }
     try {
+      const snapshot = buildExportSnapshot(data);
       const healthUrl = "/api/proposal-health";
       const proposalApiUrl = "/api/proposal-render";
       const healthFallbackUrl = "/proposal-api/health";
@@ -688,6 +824,17 @@
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      logExportToSupabase(snapshot)
+        .then(() => {
+          showToast("Export logged", "success");
+        })
+        .catch((error) => {
+          console.error("Export logging failed", {
+            operation: "quote_export_log",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          showToast("Export logging failed", "error");
+        });
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
       window.alert(
