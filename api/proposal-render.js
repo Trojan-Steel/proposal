@@ -4,6 +4,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const MAX_BODY_BYTES = 2_000_000;
 const LOAD_TIMEOUT_MS = 45_000;
+const SELECTOR_WAIT_MS = 60_000;
 
 function sanitizeFilenamePart(value, fallback = "proposal") {
   const cleaned = String(value || "")
@@ -162,13 +163,21 @@ module.exports = async function handler(req, res) {
 
     const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
     await page.goto(targetUrl, { waitUntil: "networkidle0" });
-    await page.waitForSelector(".proposal-page");
+
+    try {
+      await page.waitForSelector(".proposal-page", { timeout: SELECTOR_WAIT_MS });
+    } catch (selectorErr) {
+      const bodyHtml = await page.evaluate(
+        () => (document.body && document.body.innerHTML) || ""
+      );
+      throw new Error(
+        `Waiting for selector .proposal-page failed. First 500 chars of body: ${bodyHtml.slice(0, 500)}`
+      );
+    }
+    await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
+    await new Promise((r) => setTimeout(r, 250));
 
     await page.emulateMediaType("print");
-    await page.evaluateHandle("document.fonts.ready");
-    await page.waitForFunction(() => !document.fonts || document.fonts.status === "loaded", {
-      timeout: LOAD_TIMEOUT_MS,
-    });
     await waitForAllImages(page);
 
     await page.addStyleTag({
