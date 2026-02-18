@@ -112,6 +112,21 @@
     return `exp-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
   }
 
+  function getProposalEndpoints() {
+    const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    const isDevMode = isLocalHost;
+    if (isDevMode) {
+      return {
+        healthUrl: "/proposal-api/health",
+        proposalApiUrl: "/proposal-api/proposal",
+      };
+    }
+    return {
+      healthUrl: "/api/proposal-health",
+      proposalApiUrl: "/api/proposal-render",
+    };
+  }
+
   function collectTableRows(headerLabel) {
     const tables = Array.from(proposalRoot.querySelectorAll(".table-wrap table"));
     const targetTable = tables.find((table) => {
@@ -864,19 +879,8 @@
     }
     try {
       const exportPayload = buildExportPayload(data);
-      const healthUrl = "/api/proposal-health";
-      const proposalApiUrl = "/api/proposal-render";
-      const healthFallbackUrl = "/proposal-api/health";
-      const proposalFallbackUrl = "/proposal-api/proposal";
-      const canUseLocalFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-      const fetchWithLocalFallback = async (primaryUrl, fallbackUrl, options) => {
-        const response = await fetch(primaryUrl, options);
-        if (canUseLocalFallback && response.status === 404) {
-          return fetch(fallbackUrl, options);
-        }
-        return response;
-      };
-      const healthResponse = await fetchWithLocalFallback(healthUrl, healthFallbackUrl);
+      const { healthUrl, proposalApiUrl } = getProposalEndpoints();
+      const healthResponse = await fetch(healthUrl);
       if (!healthResponse.ok) {
         const text = (await healthResponse.text()).slice(0, 200);
         throw new Error(`Health check failed at ${healthUrl} | status ${healthResponse.status} | body: ${text}`);
@@ -885,7 +889,7 @@
       if (!healthJson || healthJson.ok !== true) {
         throw new Error(`Health endpoint returned unexpected payload at ${healthUrl}`);
       }
-      const response = await fetchWithLocalFallback(proposalApiUrl, proposalFallbackUrl, {
+      const response = await fetch(proposalApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proposalData: data }),
@@ -924,7 +928,7 @@
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
       window.alert(
-        `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/proposal are used if /api/* is unavailable.`,
+        `PDF GENERATION FAILED.\nError: ${message}`,
       );
     } finally {
       isDownloadInProgress = false;
