@@ -254,6 +254,8 @@ module.exports = async function handler(req, res) {
         if (supabase) {
           const folder = sanitizeStorageSegment(projectNameForStorage, "project");
           const pdfPath = `${folder}/${exportUuid}.pdf`;
+          console.log("DEBUG export_uuid:", exportUuid);
+          console.log("DEBUG pdfPath:", pdfPath);
           const uploadResult = await supabase.storage.from("proposals").upload(pdfPath, Buffer.from(pdfBuffer), {
             contentType: "application/pdf",
             upsert: true,
@@ -261,7 +263,7 @@ module.exports = async function handler(req, res) {
           if (uploadResult.error) {
             throw uploadResult.error;
           }
-          const const uconst updateResult = await supabase
+          const updateResult = await supabase
   .from("quote_exports")
   .update({ pdf_path: pdfPath })
   .eq("export_uuid", exportUuid)
@@ -292,6 +294,14 @@ if (!updateResult.data || updateResult.data.length === 0) {
     pdf_path: pdfPath,
   });
 }
+
+const check = await supabase
+.from("quote_exports")
+.select("export_uuid,pdf_path,pdf_url")
+.eq("export_uuid", exportUuid)
+.maybeSingle();
+
+console.log("DEBUG row after update:", check.data, "error:", check.error);
 
         }
       } catch (uploadError) {
@@ -331,7 +341,4 @@ if (!updateResult.data || updateResult.data.length === 0) {
       await browser.close().catch(() => {});
     }
   }
-};git add api/proposal-render.js
-git commit -m "Log quote_exports update result"
-git push
-
+};
