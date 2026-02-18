@@ -250,28 +250,30 @@ module.exports = async function handler(req, res) {
 
     if (exportUuid && projectNameForStorage) {
       try {
-        const supabase = getSupabaseAdminClient();
-        if (supabase) {
-          const folder = sanitizeStorageSegment(projectNameForStorage, "project");
-          const pdfPath = `${folder}/${exportUuid}.pdf`;
-          console.log("DEBUG export_uuid:", exportUuid);
-          console.log("DEBUG pdfPath:", pdfPath);
-          const uploadResult = await supabase.storage.from("proposals").upload(pdfPath, Buffer.from(pdfBuffer), {
-            contentType: "application/pdf",
-            upsert: true,
-          });
+          const supabase = getSupabaseAdminClient();
+          if (supabase) {
+            const folder = sanitizeStorageSegment(projectNameForStorage, "project");
+            const pdfPath = `${folder}/${exportUuid}.pdf`;
+            const uploadResult = await supabase.storage.from("proposals").upload(pdfPath, Buffer.from(pdfBuffer), {
+              contentType: "application/pdf",
+              upsert: true,
+            });
           if (uploadResult.error) {
             throw uploadResult.error;
           }
-          const updateResult = await supabase
-            .from("quote_exports")
-            .update({ pdf_path: pdfPath })
-            .eq("export_uuid", exportUuid)
-            .select("export_uuid,pdf_path,pdf_url")
-            .maybeSingle();
+          const signedUrl = null;
+          const updatePayload = {
+            pdf_path: pdfPath,
+            pdf_url: signedUrl || null,
+            updated_at: new Date().toISOString(),
+          };
 
-          if (updateResult.error) {
-            throw updateResult.error;
+          const initialUpdate = await supabase
+            .from("quote_exports")
+            .update(updatePayload)
+            .eq("export_uuid", exportUuid);
+          if (initialUpdate.error) {
+            throw initialUpdate.error;
           }
 
           let check = await supabase
@@ -279,16 +281,15 @@ module.exports = async function handler(req, res) {
             .select("export_uuid,pdf_path,pdf_url")
             .eq("export_uuid", exportUuid)
             .maybeSingle();
+          if (check.error) {
+            throw check.error;
+          }
 
-          console.log("DEBUG row after update:", check.data, "error:", check.error);
-
-          if (!check.error && check.data && !check.data.pdf_path) {
+          if (check.data && !check.data.pdf_path) {
             const retryUpdate = await supabase
               .from("quote_exports")
-              .update({ pdf_path: pdfPath })
-              .eq("export_uuid", exportUuid)
-              .select("export_uuid,pdf_path,pdf_url")
-              .maybeSingle();
+              .update(updatePayload)
+              .eq("export_uuid", exportUuid);
             if (retryUpdate.error) {
               throw retryUpdate.error;
             }
@@ -298,13 +299,19 @@ module.exports = async function handler(req, res) {
               .select("export_uuid,pdf_path,pdf_url")
               .eq("export_uuid", exportUuid)
               .maybeSingle();
+            if (check.error) {
+              throw check.error;
+            }
 
-            if (!check.error && check.data && !check.data.pdf_path) {
-              await supabase
+            if (check.data && !check.data.pdf_path && check.data.pdf_url === null) {
+              const markFailed = await supabase
                 .from("quote_exports")
                 .update({ pdf_url: "UPDATE_FAILED" })
                 .eq("export_uuid", exportUuid)
                 .is("pdf_url", null);
+              if (markFailed.error) {
+                throw markFailed.error;
+              }
             }
           }
 
