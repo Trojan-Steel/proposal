@@ -164,16 +164,10 @@ module.exports = async function handler(req, res) {
     const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
     await page.goto(targetUrl, { waitUntil: "networkidle0" });
 
-    try {
-      await page.waitForSelector(".proposal-page", { timeout: SELECTOR_WAIT_MS });
-    } catch (selectorErr) {
-      const bodyHtml = await page.evaluate(
-        () => (document.body && document.body.innerHTML) || ""
-      );
-      throw new Error(
-        `Waiting for selector .proposal-page failed. First 500 chars of body: ${bodyHtml.slice(0, 500)}`
-      );
-    }
+    await page.waitForFunction(
+      () => window.__PROPOSAL_READY__ === true,
+      { timeout: 60000 },
+    );
     await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
     await new Promise((r) => setTimeout(r, 250));
 

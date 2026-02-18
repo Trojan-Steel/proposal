@@ -1040,6 +1040,7 @@
     applyTermsDynamicFields(data);
     fitFirstPageToSinglePage();
     fitTermsPagesToBounds();
+    window.__PROPOSAL_READY__ = true;
   }
 
   async function downloadPdfOneClick() {
