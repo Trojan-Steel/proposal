@@ -264,44 +264,49 @@ module.exports = async function handler(req, res) {
             throw uploadResult.error;
           }
           const updateResult = await supabase
-  .from("quote_exports")
-  .update({ pdf_path: pdfPath })
-  .eq("export_uuid", exportUuid)
-  .select("export_uuid,pdf_path")
-  .maybeSingle();
+            .from("quote_exports")
+            .update({ pdf_path: pdfPath })
+            .eq("export_uuid", exportUuid)
+            .select("export_uuid,pdf_path,pdf_url")
+            .maybeSingle();
 
-if (updateResult.error) {
-  throw updateResult.error;
-}
+          if (updateResult.error) {
+            throw updateResult.error;
+          }
 
-console.log("quote_exports updated row:", updateResult.data);
+          let check = await supabase
+            .from("quote_exports")
+            .select("export_uuid,pdf_path,pdf_url")
+            .eq("export_uuid", exportUuid)
+            .maybeSingle();
 
-if (!updateResult.data) {
-  console.error("quote_exports update matched 0 rows", {
-    export_uuid: exportUuid,
-    pdf_path: pdfPath,
-  });
-}
- // <-- forces returning matched rows
+          console.log("DEBUG row after update:", check.data, "error:", check.error);
 
-if (updateResult.error) {
-  throw updateResult.error;
-}
+          if (!check.error && check.data && !check.data.pdf_path) {
+            const retryUpdate = await supabase
+              .from("quote_exports")
+              .update({ pdf_path: pdfPath })
+              .eq("export_uuid", exportUuid)
+              .select("export_uuid,pdf_path,pdf_url")
+              .maybeSingle();
+            if (retryUpdate.error) {
+              throw retryUpdate.error;
+            }
 
-if (!updateResult.data || updateResult.data.length === 0) {
-  console.error("quote_exports update matched 0 rows", {
-    export_uuid: exportUuid,
-    pdf_path: pdfPath,
-  });
-}
+            check = await supabase
+              .from("quote_exports")
+              .select("export_uuid,pdf_path,pdf_url")
+              .eq("export_uuid", exportUuid)
+              .maybeSingle();
 
-const check = await supabase
-.from("quote_exports")
-.select("export_uuid,pdf_path,pdf_url")
-.eq("export_uuid", exportUuid)
-.maybeSingle();
-
-console.log("DEBUG row after update:", check.data, "error:", check.error);
+            if (!check.error && check.data && !check.data.pdf_path) {
+              await supabase
+                .from("quote_exports")
+                .update({ pdf_url: "UPDATE_FAILED" })
+                .eq("export_uuid", exportUuid)
+                .is("pdf_url", null);
+            }
+          }
 
         }
       } catch (uploadError) {
