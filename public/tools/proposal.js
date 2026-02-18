@@ -6,6 +6,7 @@
   const backButton = document.getElementById("backToCalculatorButton");
   const queryParams = new URLSearchParams(window.location.search);
   let logoDataUrl = "";
+  let isDownloadInProgress = false;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -43,6 +44,17 @@
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    return cleaned || fallback;
+  }
+
+  function sanitizeStorageSegment(value, fallback = "project") {
+    const cleaned = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, "-")
+      .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80);
     return cleaned || fallback;
@@ -203,6 +215,56 @@
     if (!response.ok) {
       const text = (await response.text()).slice(0, 420);
       throw new Error(`status ${response.status}: ${text}`);
+    }
+    return response.json().catch(() => ({ ok: true }));
+  }
+
+  async function uploadPdfToSupabaseStorage(blob, payload) {
+    const supabaseUrl = String(payload?.snapshot_json?.proposalData?.exportMeta?.supabaseUrl || "").trim();
+    const supabaseAnonKey = String(payload?.snapshot_json?.proposalData?.exportMeta?.supabaseAnonKey || "").trim();
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error("Supabase publishable credentials are missing for upload.");
+    }
+    const exportUuid = String(payload?.export_uuid || "").trim();
+    if (!exportUuid) {
+      throw new Error("Missing export_uuid for upload.");
+    }
+    const folder = sanitizeStorageSegment(payload?.header?.project_name || "project", "project");
+    const objectPath = `${folder}/${exportUuid}.pdf`;
+    const encodedPath = objectPath
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+    const uploadUrl = `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/proposals/${encodedPath}`;
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        "Content-Type": "application/pdf",
+        "x-upsert": "true",
+      },
+      body: blob,
+    });
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 320);
+      throw new Error(`Storage upload failed (${response.status}): ${text}`);
+    }
+    return { pdf_path: objectPath };
+  }
+
+  async function updateQuotePdfPath(exportUuid, pdfPath) {
+    const response = await fetch("/proposal-api/update-quote-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        export_uuid: exportUuid,
+        pdf_path: pdfPath,
+      }),
+    });
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 320);
+      throw new Error(`Quote PDF link update failed (${response.status}): ${text}`);
     }
     return response.json().catch(() => ({ ok: true }));
   }
@@ -785,12 +847,16 @@
   }
 
   async function downloadPdfOneClick() {
+    if (isDownloadInProgress) {
+      return;
+    }
     const data = loadProposalData();
     if (!data) {
       window.alert("NO PROPOSAL DATA FOUND. RETURN TO THE CALCULATOR AND TRY AGAIN.");
       return;
     }
 
+    isDownloadInProgress = true;
     const originalLabel = downloadButton?.textContent || "Download PDF";
     if (downloadButton) {
       downloadButton.disabled = true;
@@ -838,24 +904,30 @@
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      logExportToSupabase(exportPayload)
-        .then(() => {
-          showToast("Export logged", "success");
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("Export logging failed", {
-            operation: "quote_export_log",
-            message,
-          });
-          showToast(`Export logging failed: ${message.slice(0, 110)}`, "error");
+      try {
+        const result = await logExportToSupabase(exportPayload);
+        const exportId = String(result?.id || "").trim();
+        if (!exportId) {
+          throw new Error("Quote export row id not returned.");
+        }
+        const uploaded = await uploadPdfToSupabaseStorage(blob, exportPayload);
+        await updateQuotePdfPath(exportPayload.export_uuid, uploaded.pdf_path);
+        showToast("Export logged", "success");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Export logging failed", {
+          operation: "quote_export_log",
+          message,
         });
+        showToast(`Export logging failed: ${message.slice(0, 110)}`, "error");
+      }
     } catch (_primaryError) {
       const message = _primaryError?.message || String(_primaryError);
       window.alert(
         `PDF GENERATION FAILED.\nHealth URL: /api/proposal-health\nPDF URL: /api/proposal-render\nError: ${message}\nHint: for local npm run dev:all, fallback endpoints /proposal-api/health and /proposal-api/proposal are used if /api/* is unavailable.`,
       );
     } finally {
+      isDownloadInProgress = false;
       if (downloadButton) {
         downloadButton.disabled = false;
         downloadButton.textContent = originalLabel;

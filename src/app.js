@@ -8249,6 +8249,8 @@ function buildProposalDataFromState(options = {}) {
       deckSupplier: selectedDeckSupplier,
       joistSupplier: selectedJoistSupplier,
       appVersion: "trojan-estimator-web",
+      supabaseUrl: String(import.meta.env.VITE_SUPABASE_URL || "").trim(),
+      supabaseAnonKey: String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim(),
     },
   };
 }

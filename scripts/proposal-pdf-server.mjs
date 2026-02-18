@@ -23,6 +23,8 @@ const ROUTES = [
   "POST /proposal-api/render",
   "POST /proposal-api/log-quote-export",
   "POST /log-quote-export",
+  "POST /proposal-api/update-quote-pdf",
+  "POST /update-quote-pdf",
   "POST /proposal-api/test-export-log",
   "POST /test-export-log",
   "POST /api/proposal-pdf",
@@ -255,6 +257,52 @@ async function runSupabaseQuoteExportInsert(payload) {
   };
 }
 
+async function runSupabaseQuotePdfUpdate(payload) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server environment.",
+    };
+  }
+  const exportUuid = normalizeText(payload?.export_uuid);
+  const pdfPath = normalizeText(payload?.pdf_path);
+  if (!exportUuid || !pdfPath) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Missing required payload fields: export_uuid, pdf_path.",
+    };
+  }
+  const { data, error, status } = await supabase
+    .from("quote_exports")
+    .update({ pdf_path: pdfPath, pdf_url: null })
+    .eq("export_uuid", exportUuid)
+    .select("id")
+    .limit(1);
+  if (error) {
+    console.error("Supabase quote export PDF update failed", {
+      operation: "quote_exports.update",
+      status,
+      code: error.code || "",
+      message: error.message || "",
+      details: error.details || "",
+    });
+    return {
+      ok: false,
+      status: 500,
+      error: error.message || "Failed to update quote export PDF path.",
+    };
+  }
+  const row = Array.isArray(data) && data[0] ? data[0] : null;
+  return {
+    ok: true,
+    status: 200,
+    id: row?.id || null,
+  };
+}
+
 async function renderProposalPdf(proposalData) {
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -375,6 +423,16 @@ const server = http.createServer(async (req, res) => {
       const responseBody = result.ok
         ? { ok: true, id: result.id || null }
         : { ok: false, error: result.error || "Failed to insert quote export row." };
+      sendJson(res, responseStatus, responseBody);
+      return;
+    }
+    if (req.method === "POST" && (requestUrl.pathname === "/update-quote-pdf" || requestUrl.pathname === "/proposal-api/update-quote-pdf")) {
+      const payload = await readRequestJson(req);
+      const result = await runSupabaseQuotePdfUpdate(payload);
+      const responseStatus = result.status || (result.ok ? 200 : 500);
+      const responseBody = result.ok
+        ? { ok: true, id: result.id || null }
+        : { ok: false, error: result.error || "Failed to update quote export PDF path." };
       sendJson(res, responseStatus, responseBody);
       return;
     }
