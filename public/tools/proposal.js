@@ -334,6 +334,7 @@
   }
 
   async function logExportToSupabase(payload, logQuoteExportUrl) {
+    window.__lastExportPayload = payload;
     console.log("[EXPORT DEBUG] log URL:", logQuoteExportUrl);
     console.log("[EXPORT DEBUG] payload:", payload);
     console.log(
