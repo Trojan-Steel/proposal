@@ -7384,15 +7384,15 @@ function sortScenariosForDisplay(scenarios) {
     }
     return b.marginAmount - a.marginAmount;
   });
-  if (!state.pricingOptimizationBoost.isBoosted || !state.pricingOptimizationBoost.boostedOptionId) {
+  const appliedId = String(state.appliedOptimizationSelection.scenarioId || "");
+  if (!appliedId) {
     return sorted;
   }
-  const boostedId = String(state.pricingOptimizationBoost.boostedOptionId);
   return sorted.sort((a, b) => {
-    const aBoosted = String(a.id || "") === boostedId ? 1 : 0;
-    const bBoosted = String(b.id || "") === boostedId ? 1 : 0;
-    if (aBoosted !== bBoosted) {
-      return bBoosted - aBoosted;
+    const aApplied = String(a.id || "") === appliedId ? 1 : 0;
+    const bApplied = String(b.id || "") === appliedId ? 1 : 0;
+    if (aApplied !== bApplied) {
+      return bApplied - aApplied;
     }
     return 0;
   });
@@ -7585,7 +7585,17 @@ function getActiveBoostTotalIfEnabled() {
   if (!state.pricingOptimizationBoost.isBoosted) {
     return 0;
   }
+  const appliedScenarioId = String(state.appliedOptimizationSelection.scenarioId || "");
+  if (!appliedScenarioId || appliedScenarioId === "BOOST") {
+    return 0;
+  }
   const optimization = buildPricingOptimizationScenarios();
+  const hasAppliedScenario = (optimization.scenarios || []).some(
+    (scenario) => String(scenario.id || "") === appliedScenarioId,
+  );
+  if (!hasAppliedScenario) {
+    return 0;
+  }
   const boostContext = getBoostPricingContext(optimization);
   if (!boostContext.available || boostContext.boostTotal <= 0) {
     return 0;
@@ -7661,30 +7671,11 @@ function renderPricingOptimizationResults() {
   const boostNoticeMarkup = state.pricingOptimizationBoost.notice
     ? `<p class="pricing-boost-toast">${escapeHtml(state.pricingOptimizationBoost.notice)}</p>`
     : "";
-  const boostOptionMarkup =
-    state.pricingOptimizationBoost.isBoosted && boostContext.available
-      ? `
-      <div class="pricing-line-item pricing-optimization-boosted">
-        <div class="pricing-line-item-main">
-          <span>OPTION: BOOST (${formatTwoDecimals(boostContext.boostFactor * 100)}% OF CSC) <span class="pricing-boosted-badge">BOOSTED</span></span>
-          <strong>${formatMoney(boostContext.boostTotal)}</strong>
-        </div>
-        <div class="pricing-optimization-actions">
-          <button type="button" class="btn-secondary" data-action="apply-boost-pricing">APPLIED</button>
-        </div>
-      </div>
-    `
-      : "";
   const scenarioMarkup = optimization.scenarios
     .map((scenario, index) => {
       const isBest = index === 0;
-      const isBoosted = Boolean(scenario.boosted);
-      const isApplied =
-        state.appliedOptimizationSelection.label !== "" &&
-        state.appliedOptimizationSelection.label === scenario.label &&
-        state.appliedOptimizationSelection.deckMode === (scenario.deckMode || "auto") &&
-        state.appliedOptimizationSelection.deckVendor === (scenario.deckVendor || "") &&
-        state.appliedOptimizationSelection.joistVendor === (scenario.joistVendor || "");
+      const isApplied = String(state.appliedOptimizationSelection.scenarioId || "") === String(scenario.id || "");
+      const isBoosted = Boolean(state.pricingOptimizationBoost.isBoosted && isApplied);
       const deckLine =
         scenario.deckBreakdown && Array.isArray(scenario.deckBreakdown.entries)
           ? scenario.deckBreakdown.entries
@@ -7753,6 +7744,10 @@ function renderPricingOptimizationResults() {
           }</p>`
         : "";
       const boostedBadge = isBoosted ? '<span class="pricing-boosted-badge">BOOSTED</span>' : "";
+      const marginPercent =
+        parsePositiveNumberOrZero(scenario.subtotalCost) > 0
+          ? (parsePositiveNumberOrZero(scenario.marginAmount) / parsePositiveNumberOrZero(scenario.subtotalCost)) * 100
+          : 0;
       return `
         <div class="pricing-line-item ${isBest ? "pricing-optimization-best" : ""} ${
           isBoosted ? "pricing-optimization-boosted" : ""
@@ -7766,7 +7761,10 @@ function renderPricingOptimizationResults() {
               <span>TOTAL MARGIN:</span>
               <span>${formatMoney(scenario.marginAmount || 0)}</span>
             </p>
-            <span></span>
+            <p class="pricing-line-item-meta pricing-line-item-meta-margin">
+              <span>MARGIN %:</span>
+              <span>${formatTwoDecimals(marginPercent)}%</span>
+            </p>
           </div>
           <div class="pricing-optimization-actions">
             <button
@@ -7797,7 +7795,6 @@ function renderPricingOptimizationResults() {
           <span>SUBTOTAL PRICE</span>
         </div>
       </div>
-      ${boostOptionMarkup}
       ${scenarioMarkup}
     </div>
   `;
@@ -7856,12 +7853,6 @@ function togglePricingOptimizationBoost() {
     targetSubtotal: 0,
     notice: "",
   };
-  state.appliedOptimizationSelection = {
-    ...state.appliedOptimizationSelection,
-    scenarioId: "BOOST",
-    label: "BOOST",
-    trojanDeckMarginPercentOverride: null,
-  };
   updateCalculator();
 }
 
@@ -7869,13 +7860,6 @@ function applyPricingOptimizationScenario(index) {
   const scenario = state.pricingOptimizationScenarios[index];
   if (!scenario) {
     return;
-  }
-  if (state.pricingOptimizationBoost.isBoosted) {
-    state.pricingOptimizationBoost.isBoosted = false;
-    state.pricingOptimizationBoost.previousAppliedSelection = null;
-    state.pricingOptimizationBoost.notice = "";
-    state.pricingOptimizationBoost.boostTotal = 0;
-    state.pricingOptimizationBoost.cscTotal = 0;
   }
   state.appliedOptimizationSelection = {
     deckMode: scenario.deckMode || "auto",
@@ -10121,15 +10105,6 @@ pagePricing.addEventListener("click", (event) => {
     if (Number.isInteger(index) && index >= 0) {
       applyPricingOptimizationScenario(index);
     }
-    return;
-  }
-  const applyBoostButton = target.closest('[data-action="apply-boost-pricing"]');
-  if (applyBoostButton) {
-    if (!state.pricingOptimizationBoost.isBoosted) {
-      togglePricingOptimizationBoost();
-      return;
-    }
-    updateCalculator();
     return;
   }
   const resetDetailingButton = target.closest('[data-action="pricing-detailing-reset-auto"]');
