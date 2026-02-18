@@ -39,6 +39,9 @@ function toNumberOrZero(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
 }
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
 
 function getSupabaseServerClient() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -69,6 +72,7 @@ module.exports = async function handler(req, res) {
     const exportUuid = normalizeText(payload?.export_uuid);
     const header = isPlainObject(payload?.header) ? payload.header : null;
     const snapshotJson = isPlainObject(payload?.snapshot_json) ? payload.snapshot_json : null;
+    const lineItems = toArray(payload?.line_items);
     if (!exportUuid || !header || !snapshotJson) {
       return res.status(400).json({
         ok: false,
@@ -110,7 +114,71 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ ok: false, error: error.message || "Failed to write quote export." });
     }
 
+    if (lineItems.length) {
+      const { error: delErr } = await supabase.from("quote_line_items").delete().eq("export_uuid", exportUuid);
+      if (delErr) {
+        console.error("log-quote-export failed", {
+          operation: "quote_line_items.delete",
+          code: delErr.code || "",
+          message: delErr.message || "",
+          details: delErr.details || "",
+        });
+        return res.status(500).json({ ok: false, error: delErr.message || "Failed to reset line items." });
+      }
+
+      const cleanItems = lineItems
+        .filter((li) => isPlainObject(li))
+        .map((li, idx) => ({
+          export_uuid: exportUuid,
+          line_no: Number.isFinite(Number(li.line_no)) ? Number(li.line_no) : idx + 1,
+          item_type: normalizeText(li.item_type),
+          description: normalizeText(li.description),
+          quantity: li.quantity ?? null,
+          uom: normalizeText(li.uom),
+          weight_lbs: li.weight_lbs ?? null,
+          tons: li.tons ?? null,
+          unit_price: li.unit_price ?? null,
+          extended_price: li.extended_price ?? null,
+          unit_cost: li.unit_cost ?? null,
+          extended_cost: li.extended_cost ?? null,
+          margin: li.margin ?? null,
+          margin_pct: li.margin_pct ?? null,
+          supplier_key: normalizeText(li.supplier_key),
+          deck_profile: normalizeText(li.deck_profile),
+          deck_depth_in: li.deck_depth_in ?? null,
+          deck_width_in: li.deck_width_in ?? null,
+          deck_gauge: normalizeText(li.deck_gauge),
+          deck_finish: normalizeText(li.deck_finish),
+          deck_paint: normalizeText(li.deck_paint),
+          deck_grade: normalizeText(li.deck_grade),
+          deck_measure_method: normalizeText(li.deck_measure_method),
+          deck_sqs_count: Number.isFinite(Number(li.deck_sqs_count)) ? Number(li.deck_sqs_count) : null,
+          joist_series: normalizeText(li.joist_series),
+          joist_mark: normalizeText(li.joist_mark),
+          joist_length_ft: li.joist_length_ft ?? null,
+          joist_qty: Number.isFinite(Number(li.joist_qty)) ? Number(li.joist_qty) : null,
+          accessory_type: normalizeText(li.accessory_type),
+          accessory_spec: normalizeText(li.accessory_spec),
+          accessory_qty: li.accessory_qty ?? null,
+          spec_json: isPlainObject(li.spec_json) ? li.spec_json : {},
+        }));
+
+      if (cleanItems.length) {
+        const { error: insErr } = await supabase.from("quote_line_items").insert(cleanItems);
+        if (insErr) {
+          console.error("log-quote-export failed", {
+            operation: "quote_line_items.insert",
+            code: insErr.code || "",
+            message: insErr.message || "",
+            details: insErr.details || "",
+          });
+          return res.status(500).json({ ok: false, error: insErr.message || "Failed to write line items." });
+        }
+      }
+    }
+
     return res.status(200).json({ ok: true });
+
   } catch (error) {
     return res.status(500).json({
       ok: false,
