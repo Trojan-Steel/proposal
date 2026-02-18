@@ -261,13 +261,23 @@ module.exports = async function handler(req, res) {
           if (uploadResult.error) {
             throw uploadResult.error;
           }
-          const updateResult = await supabase
-            .from("quote_exports")
-            .update({ pdf_path: pdfPath })
-            .eq("export_uuid", exportUuid);
-          if (updateResult.error) {
-            throw updateResult.error;
-          }
+          const const updateResult = await supabase
+  .from("quote_exports")
+  .update({ pdf_path: pdfPath })
+  .eq("export_uuid", exportUuid)
+  .select("export_uuid"); // <-- forces returning matched rows
+
+if (updateResult.error) {
+  throw updateResult.error;
+}
+
+if (!updateResult.data || updateResult.data.length === 0) {
+  console.error("quote_exports update matched 0 rows", {
+    export_uuid: exportUuid,
+    pdf_path: pdfPath,
+  });
+}
+
         }
       } catch (uploadError) {
         console.error("proposal-render pdf upload/link failed", {
