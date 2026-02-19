@@ -466,6 +466,9 @@
   }
 
   function loadProposalData() {
+    if (window.__PROPOSAL_DATA__ && typeof window.__PROPOSAL_DATA__ === "object") {
+      return window.__PROPOSAL_DATA__;
+    }
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) {
@@ -889,6 +892,9 @@
   }
 
   async function loadTermsMarkup() {
+    if (typeof window.__SERVER_PDF_TERMS__ === "string" && window.__SERVER_PDF_TERMS__.length > 0) {
+      return window.__SERVER_PDF_TERMS__;
+    }
     try {
       const response = await fetch("terms.html", { cache: "no-store" });
       if (!response.ok) {
@@ -902,6 +908,10 @@
 
   async function preloadLogoDataUrl() {
     if (logoDataUrl) {
+      return;
+    }
+    if (typeof window.__SERVER_PDF_LOGO__ === "string" && window.__SERVER_PDF_LOGO__.length > 0) {
+      logoDataUrl = window.__SERVER_PDF_LOGO__;
       return;
     }
     const response = await fetch(`${LOCAL_LOGO_URL}?v=${Date.now()}`, { cache: "no-store" });
