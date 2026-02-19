@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/proposal-api/health", "destination": "/api/proposal-health" },
+    { "source": "/proposal-api/proposal", "destination": "/api/proposal-render" },
+    { "source": "/proposal-api/render", "destination": "/api/proposal-render" },
+    { "source": "/proposal-api/log-quote-export", "destination": "/api/log-quote-export" }
+  ]
+}
