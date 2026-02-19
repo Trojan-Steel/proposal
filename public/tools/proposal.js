@@ -466,6 +466,15 @@
   }
 
   function loadProposalData() {
+    const el = document.getElementById("__proposalData");
+    if (el && el.textContent) {
+      try {
+        const parsed = JSON.parse(el.textContent);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch (e) {
+        console.error("proposalData: failed to parse #__proposalData", e);
+      }
+    }
     if (window.__PROPOSAL_DATA__ && typeof window.__PROPOSAL_DATA__ === "object") {
       return window.__PROPOSAL_DATA__;
     }
@@ -1036,7 +1045,13 @@
   async function renderProposal() {
     const data = loadProposalData();
     if (!data) {
-      proposalRoot.innerHTML = '<div class="empty-state">NO PROPOSAL DATA FOUND. RETURN TO THE CALCULATOR AND CLICK \"GENERATE PROPOSAL PDF\".</div>';
+      console.error("proposalData: missing. Checked #__proposalData, window.__PROPOSAL_DATA__, localStorage.", {
+        hasProposalDataEl: !!document.getElementById("__proposalData"),
+        hasWindowData: !!window.__PROPOSAL_DATA__,
+        hasLocalStorage: !!window.localStorage?.getItem(STORAGE_KEY),
+      });
+      proposalRoot.innerHTML =
+        '<div class="empty-state proposal-page">Missing proposalData. Check #__proposalData, __PROPOSAL_DATA__, localStorage.</div>';
       return;
     }
 

@@ -5,6 +5,14 @@ const puppeteerCore = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
 
 const MAX_BODY_BYTES = 2_000_000;
+const PROPOSAL_CONTENT_SELECTOR = ".proposal-page";
+
+function escapeForHtmlScript(str) {
+  return String(str || "")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
 
 function loadProposalAssets() {
   const roots = [path.resolve(__dirname, ".."), process.cwd()];
@@ -178,15 +186,41 @@ module.exports = async function handler(req, res) {
     page.setDefaultTimeout(LOAD_TIMEOUT_MS);
 
     const assets = loadProposalAssets();
+    const useInline = !!assets;
+    const selector = PROPOSAL_CONTENT_SELECTOR;
+    res.setHeader("X-Proposal-Render-Mode", useInline ? "inline" : "goto");
+
+    page.on("console", (msg) =>
+      console.log("[proposal console]", msg.type(), msg.text()),
+    );
+    page.on("pageerror", (err) =>
+      console.log(
+        "[proposal pageerror]",
+        err && err.stack ? err.stack : String(err),
+      ),
+    );
+    page.on("requestfailed", (req) =>
+      console.log(
+        "[proposal requestfailed]",
+        req.url(),
+        req.failure()?.errorText || "",
+      ),
+    );
+
     if (assets) {
-      const initScript = `<script>(function(){localStorage.setItem("proposalData_v1",${JSON.stringify(JSON.stringify(proposalData))});})();</script>`;
-      const htmlWithCss = assets.html.replace(
+      const baseHref = `${SITE_ORIGIN.replace(/\/$/, "")}/tools/`;
+      const proposalDataScript = `<script id="__proposalData" type="application/json">${escapeForHtmlScript(JSON.stringify(proposalData))}</script>`;
+      const htmlWithBase = assets.html.replace(
+        /<\/head>/i,
+        () => `<base href="${baseHref}" />\n  </head>`,
+      );
+      const htmlWithCss = htmlWithBase.replace(
         /<link[^>]+href="[^"]*proposal\.css[^"]*"[^>]*\/?>/i,
         () => `<style>${assets.css}</style>`,
       );
       const htmlWithJs = htmlWithCss.replace(
         /<script[^>]+src="[^"]*proposal\.js[^"]*"[^>]*><\/script>/i,
-        () => `${initScript}\n    <script>${assets.js}</script>`,
+        () => `${proposalDataScript}\n    <script>${assets.js}</script>`,
       );
       await page.setContent(htmlWithJs, {
         waitUntil: "load",
@@ -201,7 +235,28 @@ module.exports = async function handler(req, res) {
       await page.reload({ waitUntil: "load" });
     }
 
-    await page.waitForSelector("#proposalRoot", { timeout: 20000 });
+    try {
+      await page.waitForSelector(selector, { timeout: 20000 });
+    } catch (e) {
+      console.log(`Selector ${selector} failed; dumping DOM snippet`);
+      const html = await page.content();
+      console.log(html.slice(0, 4000));
+      const fallback = "#proposalRoot";
+      let sawRoot = false;
+      try {
+        await page.waitForSelector(fallback, { timeout: 5000 });
+        sawRoot = true;
+      } catch (_) {
+        sawRoot = false;
+      }
+      return res.status(500).json({
+        error: `Waiting for selector ${selector} failed`,
+        mode: useInline ? "inline" : "goto",
+        selectorTried: selector,
+        sawRoot,
+        hint: "Check Vercel logs for [proposal console] and [proposal pageerror]",
+      });
+    }
 
     await page.waitForFunction(
       () => {
