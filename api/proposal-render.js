@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const chromium = require("@sparticuz/chromium");
 const puppeteerCore = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
@@ -89,6 +91,50 @@ function getSupabaseAdminClient() {
   });
 }
 
+function buildInlineProposalHtml(proposalData) {
+  const publicDir = path.join(process.cwd(), "public", "tools");
+  const termsPath = path.join(publicDir, "terms.html");
+  const cssPath = path.join(publicDir, "proposal.css");
+  const jsPath = path.join(publicDir, "proposal.js");
+  const logoPath = path.join(process.cwd(), "public", "data", "templates", "trojan-logo.png");
+
+  const termsHtml = fs.existsSync(termsPath) ? fs.readFileSync(termsPath, "utf8") : "";
+  const proposalCss = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, "utf8") : "";
+  const proposalJs = fs.existsSync(jsPath) ? fs.readFileSync(jsPath, "utf8") : "";
+  if (!proposalCss.trim() || !proposalJs.trim()) {
+    throw new Error("Missing proposal assets in server render");
+  }
+  let logoDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="; // 1x1 transparent
+  if (fs.existsSync(logoPath)) {
+    const logoBuf = fs.readFileSync(logoPath);
+    logoDataUrl = `data:image/png;base64,${logoBuf.toString("base64")}`;
+  }
+
+  const dataScript = `
+    window.__PROPOSAL_DATA__ = ${JSON.stringify(proposalData)};
+    window.localStorage.setItem("proposalData_v1", JSON.stringify(window.__PROPOSAL_DATA__));
+    window.__SERVER_PDF_TERMS__ = ${JSON.stringify(termsHtml)};
+    window.__SERVER_PDF_LOGO__ = ${JSON.stringify(logoDataUrl)};
+  `;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Proposal</title>
+  <style>${proposalCss}</style>
+</head>
+<body>
+  <main class="proposal-shell">
+    <div id="proposalRoot" class="proposal-root" aria-live="polite"></div>
+  </main>
+  <script>${dataScript}</script>
+  <script>${proposalJs}</script>
+</body>
+</html>`;
+}
+
 async function waitForAllImages(page) {
   await page.evaluate(async () => {
     const images = Array.from(document.querySelectorAll("img"));
@@ -135,14 +181,10 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const baseUrl = resolveBaseUrl(req);
-  if (!baseUrl) {
-    return res.status(400).json({ error: "Unable to resolve host for proposal rendering." });
-  }
-
   try {
     browser = await launchBrowser();
     page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
     page.setDefaultNavigationTimeout(LOAD_TIMEOUT_MS);
     page.setDefaultTimeout(LOAD_TIMEOUT_MS);
 
@@ -156,35 +198,9 @@ module.exports = async function handler(req, res) {
       interceptedRequest.continue();
     });
 
-    await page.evaluateOnNewDocument((data) => {
-      window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
-    }, proposalData);
-
-    const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+    const inlineHtml = buildInlineProposalHtml(proposalData);
+    await page.setContent(inlineHtml, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.readyState === "complete", { timeout: 30000 });
-
-    const injectProposalData = () =>
-      page.evaluate(
-        (data) => {
-          const existing = window.localStorage.getItem("proposalData_v1");
-          if (!existing) {
-            window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
-          }
-        },
-        proposalData,
-      );
-    try {
-      await injectProposalData();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Execution context was destroyed")) {
-        await new Promise((r) => setTimeout(r, 500));
-        await injectProposalData();
-      } else {
-        throw err;
-      }
-    }
     await new Promise((r) => setTimeout(r, 1200));
 
     await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
