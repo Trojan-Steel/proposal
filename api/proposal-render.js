@@ -1,8 +1,26 @@
 const chromium = require("@sparticuz/chromium");
+const fs = require("fs");
+const path = require("path");
 const puppeteerCore = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
 
 const MAX_BODY_BYTES = 2_000_000;
+
+function loadProposalAssets() {
+  const roots = [path.resolve(__dirname, ".."), process.cwd()];
+  for (const root of roots) {
+    const dir = path.join(root, "public", "tools");
+    try {
+      const html = fs.readFileSync(path.join(dir, "proposal.html"), "utf8");
+      const css = fs.readFileSync(path.join(dir, "proposal.css"), "utf8");
+      const js = fs.readFileSync(path.join(dir, "proposal.js"), "utf8");
+      return { html, css, js };
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
+}
 const LOAD_TIMEOUT_MS = 45_000;
 
 function sanitizeFilenamePart(value, fallback = "proposal") {
@@ -159,17 +177,31 @@ module.exports = async function handler(req, res) {
     page.setDefaultNavigationTimeout(LOAD_TIMEOUT_MS);
     page.setDefaultTimeout(LOAD_TIMEOUT_MS);
 
-    const proposalUrl = `${SITE_ORIGIN}/tools/proposal.html`;
+    const assets = loadProposalAssets();
+    if (assets) {
+      const initScript = `<script>(function(){localStorage.setItem("proposalData_v1",${JSON.stringify(JSON.stringify(proposalData))});})();</script>`;
+      const htmlWithCss = assets.html.replace(
+        /<link[^>]+href="[^"]*proposal\.css[^"]*"[^>]*\/?>/i,
+        () => `<style>${assets.css}</style>`,
+      );
+      const htmlWithJs = htmlWithCss.replace(
+        /<script[^>]+src="[^"]*proposal\.js[^"]*"[^>]*><\/script>/i,
+        () => `${initScript}\n    <script>${assets.js}</script>`,
+      );
+      await page.setContent(htmlWithJs, {
+        waitUntil: "load",
+        timeout: LOAD_TIMEOUT_MS,
+      });
+    } else {
+      const proposalUrl = `${SITE_ORIGIN}/tools/proposal.html`;
+      await page.goto(proposalUrl, { waitUntil: "load" });
+      await page.evaluate((data) => {
+        localStorage.setItem("proposalData_v1", JSON.stringify(data));
+      }, proposalData);
+      await page.reload({ waitUntil: "load" });
+    }
 
-    await page.goto(proposalUrl, { waitUntil: "networkidle0" });
-
-    await page.evaluate((data) => {
-      localStorage.setItem("proposalData_v1", JSON.stringify(data));
-    }, proposalData);
-
-    await page.reload({ waitUntil: "networkidle0" });
-
-    await page.waitForSelector("#proposalRoot", { timeout: 15000 });
+    await page.waitForSelector("#proposalRoot", { timeout: 20000 });
 
     await page.waitForFunction(
       () => {
