@@ -135,7 +135,13 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const SITE_ORIGIN = process.env.SITE_ORIGIN;
+  const proto =
+    (req.headers["x-forwarded-proto"] || "https").toString().split(",")[0].trim();
+  const host =
+    (req.headers["x-forwarded-host"] || req.headers.host || "").toString().split(",")[0].trim();
+
+  const SITE_ORIGIN = process.env.SITE_ORIGIN || (host ? `${proto}://${host}` : "");
+
   if (!SITE_ORIGIN) {
     return res.status(500).json({ error: "SITE_ORIGIN not configured" });
   }
