@@ -162,16 +162,29 @@ module.exports = async function handler(req, res) {
 
     const targetUrl = `${baseUrl}/tools/proposal.html?render=1&serverPdf=1`;
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.readyState === "complete", { timeout: 30000 });
 
-    await page.evaluate(
-      (data) => {
-        const existing = window.localStorage.getItem("proposalData_v1");
-        if (!existing) {
-          window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
-        }
-      },
-      proposalData,
-    );
+    const injectProposalData = () =>
+      page.evaluate(
+        (data) => {
+          const existing = window.localStorage.getItem("proposalData_v1");
+          if (!existing) {
+            window.localStorage.setItem("proposalData_v1", JSON.stringify(data));
+          }
+        },
+        proposalData,
+      );
+    try {
+      await injectProposalData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Execution context was destroyed")) {
+        await new Promise((r) => setTimeout(r, 500));
+        await injectProposalData();
+      } else {
+        throw err;
+      }
+    }
     await new Promise((r) => setTimeout(r, 1200));
 
     await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
