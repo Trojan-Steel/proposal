@@ -1,5 +1,3 @@
-const fs = require("fs");
-const path = require("path");
 const chromium = require("@sparticuz/chromium");
 const puppeteerCore = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
@@ -91,50 +89,6 @@ function getSupabaseAdminClient() {
   });
 }
 
-function buildInlineProposalHtml(proposalData) {
-  const publicDir = path.join(process.cwd(), "public", "tools");
-  const termsPath = path.join(publicDir, "terms.html");
-  const cssPath = path.join(publicDir, "proposal.css");
-  const jsPath = path.join(publicDir, "proposal.js");
-  const logoPath = path.join(process.cwd(), "public", "data", "templates", "trojan-logo.png");
-
-  const termsHtml = fs.existsSync(termsPath) ? fs.readFileSync(termsPath, "utf8") : "";
-  const proposalCss = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, "utf8") : "";
-  const proposalJs = fs.existsSync(jsPath) ? fs.readFileSync(jsPath, "utf8") : "";
-  if (!proposalCss.trim() || !proposalJs.trim()) {
-    throw new Error("Missing proposal assets in server render");
-  }
-  let logoDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="; // 1x1 transparent
-  if (fs.existsSync(logoPath)) {
-    const logoBuf = fs.readFileSync(logoPath);
-    logoDataUrl = `data:image/png;base64,${logoBuf.toString("base64")}`;
-  }
-
-  const dataScript = `
-    window.__PROPOSAL_DATA__ = ${JSON.stringify(proposalData)};
-    window.localStorage.setItem("proposalData_v1", JSON.stringify(window.__PROPOSAL_DATA__));
-    window.__SERVER_PDF_TERMS__ = ${JSON.stringify(termsHtml)};
-    window.__SERVER_PDF_LOGO__ = ${JSON.stringify(logoDataUrl)};
-  `;
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Proposal</title>
-  <style>${proposalCss}</style>
-</head>
-<body>
-  <main class="proposal-shell">
-    <div id="proposalRoot" class="proposal-root" aria-live="polite"></div>
-  </main>
-  <script>${dataScript}</script>
-  <script>${proposalJs}</script>
-</body>
-</html>`;
-}
-
 async function waitForAllImages(page) {
   await page.evaluate(async () => {
     const images = Array.from(document.querySelectorAll("img"));
@@ -181,97 +135,52 @@ module.exports = async function handler(req, res) {
     });
   }
 
+  const SITE_ORIGIN = process.env.SITE_ORIGIN;
+  if (!SITE_ORIGIN) {
+    return res.status(500).json({ error: "SITE_ORIGIN not configured" });
+  }
+
   try {
     browser = await launchBrowser();
     page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
+
+    await page.setViewport({
+      width: 1200,
+      height: 1600,
+      deviceScaleFactor: 2
+    });
+
     page.setDefaultNavigationTimeout(LOAD_TIMEOUT_MS);
     page.setDefaultTimeout(LOAD_TIMEOUT_MS);
 
-    await page.setRequestInterception(true);
-    page.on("request", (interceptedRequest) => {
-      const requestUrl = interceptedRequest.url();
-      if (requestUrl.includes("fonts.googleapis.com") || requestUrl.includes("fonts.gstatic.com")) {
-        interceptedRequest.abort();
-        return;
+    const proposalUrl = `${SITE_ORIGIN}/tools/proposal.html`;
+
+    await page.goto(proposalUrl, { waitUntil: "networkidle0" });
+
+    await page.evaluate((data) => {
+      localStorage.setItem("proposalData_v1", JSON.stringify(data));
+    }, proposalData);
+
+    await page.reload({ waitUntil: "networkidle0" });
+
+    await page.waitForSelector("#proposalRoot", { timeout: 15000 });
+
+    await page.waitForFunction(
+      () => {
+        const slot = document.querySelector("[data-proposal-conditions-slot]");
+        return slot && slot.innerText && slot.innerText.length > 0;
+      },
+      { timeout: 15000 },
+    );
+
+    await page.evaluate(async () => {
+      if (document.fonts && document.fonts.ready) {
+        await document.fonts.ready;
       }
-      interceptedRequest.continue();
     });
-
-    const inlineHtml = buildInlineProposalHtml(proposalData);
-    await page.setContent(inlineHtml, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.readyState === "complete", { timeout: 30000 });
-    await new Promise((r) => setTimeout(r, 1200));
-
-    await page.evaluate(() => (document.fonts ? document.fonts.ready : true));
-    await new Promise((r) => setTimeout(r, 250));
 
     await page.emulateMediaType("print");
     await waitForAllImages(page);
-
-    await page.addStyleTag({
-      content: `
-        @page { size: Letter; margin: 0.5in; }
-        html, body {
-          background: #ffffff !important;
-          margin: 0 !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
-        }
-        .proposal-shell,
-        .proposal-root,
-        .proposal-page,
-        .terms-page-with-ack,
-        .terms-final-content,
-        .terms-ack-bottom {
-          font-family: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
-        }
-        .proposal-tools { display: none !important; }
-        .proposal-shell {
-          max-width: none !important;
-          margin: 0 !important;
-          padding: 0 !important;
-        }
-        .proposal-root {
-          display: block !important;
-          gap: 0 !important;
-          overflow: visible !important;
-        }
-        .proposal-page {
-          width: auto !important;
-          min-height: 0 !important;
-          height: auto !important;
-          margin: 0 !important;
-          border: 0 !important;
-          border-radius: 0 !important;
-          box-shadow: none !important;
-          overflow: visible !important;
-          break-inside: avoid-page;
-          page-break-inside: avoid;
-          page-break-before: auto !important;
-        }
-        .proposal-page.page-break {
-          break-after: page;
-          page-break-after: always;
-        }
-        .proposal-page:last-child {
-          break-after: auto !important;
-          page-break-after: auto !important;
-        }
-        .terms-page-with-ack {
-          display: flex !important;
-          flex-direction: column !important;
-          min-height: 10in !important;
-        }
-        .terms-page-with-ack .terms-final-content {
-          flex: 0 0 auto;
-        }
-        .terms-page-with-ack .terms-ack-bottom {
-          margin-top: auto !important;
-        }
-      `,
-    });
 
     const pdfBuffer = await page.pdf({
       format: "Letter",
